@@ -4,3 +4,11 @@ out
 .DS_Store
 .eslintcache
 *.log*
+
+.idea
+
+.vscode
+
+.codex
+
+.claude

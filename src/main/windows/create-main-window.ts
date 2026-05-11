@@ -1,0 +1,56 @@
+import { shell, BrowserWindow } from 'electron'
+import { join } from 'path'
+import { is } from '@electron-toolkit/utils'
+import icon from '../../../resources/icon.png?asset'
+import { setMainWindow } from '../state/main-window'
+import { disposeSsh } from '../ssh/ssh-runtime'
+
+export function createMainWindow(): void {
+  const mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    show: false,
+    autoHideMenuBar: true,
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  mainWindow.on('ready-to-show', () => {
+    mainWindow.show()
+  })
+
+  setMainWindow(mainWindow)
+
+  if (is.dev) {
+    mainWindow.webContents.on('before-input-event', (_event, input) => {
+      const key = input.key.toLowerCase()
+
+      if (key === 'f5') {
+        mainWindow.webContents.reloadIgnoringCache()
+      }
+
+      if (key === 'f12') {
+        mainWindow.webContents.toggleDevTools()
+      }
+    })
+  }
+
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  } else {
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+
+  mainWindow.on('closed', () => {
+    setMainWindow(null)
+    disposeSsh()
+  })
+}
