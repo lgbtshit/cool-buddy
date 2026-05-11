@@ -63,3 +63,5 @@ export type SystemMetrics = {
   architecture: string | null
   uptime: string | null
 }
+
+export type LiveSystemMetrics = Pick<SystemMetrics, 'cpuPercent' | 'memoryUsedMb' | 'memoryTotalMb'>

@@ -24,6 +24,7 @@ export default defineConfig(
   {
     files: ['**/*.{ts,mts,tsx,vue}'],
     rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off',
       'vue/require-default-prop': 'off',
       'vue/multi-word-component-names': 'off',
       'vue/block-lang': [
@@ -34,6 +35,13 @@ export default defineConfig(
           }
         }
       ]
+    }
+  },
+  {
+    files: ['scripts/**/*.cjs'],
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/no-require-imports': 'off'
     }
   },
   eslintConfigPrettier

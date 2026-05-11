@@ -61,6 +61,8 @@ type SystemMetrics = {
   uptime: string | null
 }
 
+type LiveSystemMetrics = Pick<SystemMetrics, 'cpuPercent' | 'memoryUsedMb' | 'memoryTotalMb'>
+
 const api = {
   sessions: {
     list: (): Promise<SessionItem[]> => ipcRenderer.invoke('sessions:list'),
@@ -79,18 +81,24 @@ const api = {
       directory: string
       name: string
       data: Uint8Array
-    }): Promise<{ ok: true; path: string }> => ipcRenderer.invoke('ssh:upload-remote-file', payload),
+    }): Promise<{ ok: true; path: string }> =>
+      ipcRenderer.invoke('ssh:upload-remote-file', payload),
     createRemoteDirectory: (payload: { path: string }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:create-remote-directory', payload),
     renameRemoteEntry: (payload: {
       oldPath: string
       newPath: string
-    }): Promise<{ ok: true; path: string }> => ipcRenderer.invoke('ssh:rename-remote-entry', payload),
+    }): Promise<{ ok: true; path: string }> =>
+      ipcRenderer.invoke('ssh:rename-remote-entry', payload),
     deleteRemoteEntry: (payload: {
       path: string
       recursive?: boolean
-    }): Promise<{ ok: true; path: string }> => ipcRenderer.invoke('ssh:delete-remote-entry', payload),
-    getSystemMetrics: (): Promise<SystemMetrics | null> => ipcRenderer.invoke('ssh:get-system-metrics'),
+    }): Promise<{ ok: true; path: string }> =>
+      ipcRenderer.invoke('ssh:delete-remote-entry', payload),
+    getSystemMetrics: (): Promise<SystemMetrics | null> =>
+      ipcRenderer.invoke('ssh:get-system-metrics'),
+    getLiveMetrics: (): Promise<LiveSystemMetrics | null> =>
+      ipcRenderer.invoke('ssh:get-live-metrics'),
     input: (data: string) => ipcRenderer.send('ssh:input', data),
     resize: (size: { cols: number; rows: number }) => ipcRenderer.send('ssh:resize', size),
     onData: (listener: (data: string) => void) => {

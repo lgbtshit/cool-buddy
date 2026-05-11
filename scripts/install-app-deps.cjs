@@ -26,10 +26,7 @@ function run(command, args, options = {}) {
 }
 
 function withTempBatchFile(prefix, contents, fn) {
-  const batchFile = path.join(
-    os.tmpdir(),
-    `${prefix}-${process.pid}-${Date.now()}.cmd`
-  )
+  const batchFile = path.join(os.tmpdir(), `${prefix}-${process.pid}-${Date.now()}.cmd`)
   fs.writeFileSync(batchFile, contents, 'utf8')
 
   try {
@@ -70,14 +67,8 @@ function mergeClFlags(existing) {
 }
 
 function findVsDevCmd() {
-  const programFilesX86 =
-    process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
-  const vswhere = path.join(
-    programFilesX86,
-    'Microsoft Visual Studio',
-    'Installer',
-    'vswhere.exe'
-  )
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+  const vswhere = path.join(programFilesX86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe')
 
   if (!fs.existsSync(vswhere)) {
     fail(`vswhere.exe not found at ${vswhere}`)
@@ -149,8 +140,8 @@ function captureVsEnv(vsDevCmd, tempDir) {
     }
 
     const key = line.slice(0, separator)
-    const value = line.slice(separator + 1)
-    env[key] = value
+
+    env[key] = line.slice(separator + 1)
   }
 
   return env
@@ -168,10 +159,7 @@ function runElectronBuilder(workspaceRoot, env) {
     fail(`electron-builder executable not found at ${electronBuilderCmd}`)
   }
 
-  const script = [
-    '@echo off',
-    `call "${electronBuilderCmd}" install-app-deps`
-  ].join('\r\n')
+  const script = ['@echo off', `call "${electronBuilderCmd}" install-app-deps`].join('\r\n')
 
   const result = withTempBatchFile('native-rebuild-run', script, (batchFile) =>
     run('cmd.exe', ['/d', '/c', batchFile], {
@@ -238,10 +226,7 @@ function prepareCpuFeaturesBuildcheck(packageDirs, env) {
     })
 
     if (result.status !== 0) {
-      fail(
-        result.stderr.trim() ||
-          `Failed to generate buildcheck.gypi in ${packageDir}`
-      )
+      fail(result.stderr.trim() || `Failed to generate buildcheck.gypi in ${packageDir}`)
     }
 
     const contents = result.stdout.trim()
@@ -252,9 +237,7 @@ function prepareCpuFeaturesBuildcheck(packageDirs, env) {
     try {
       JSON.parse(contents)
     } catch (error) {
-      fail(
-        `buildcheck.js produced invalid JSON in ${packageDir}: ${error.message}`
-      )
+      fail(`buildcheck.js produced invalid JSON in ${packageDir}: ${error.message}`)
     }
 
     fs.writeFileSync(outputFile, `${result.stdout.replace(/\s*$/, '')}\n`, 'utf8')

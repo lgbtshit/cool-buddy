@@ -60,6 +60,8 @@ type SystemMetrics = {
   uptime: string | null
 }
 
+type LiveSystemMetrics = Pick<SystemMetrics, 'cpuPercent' | 'memoryUsedMb' | 'memoryTotalMb'>
+
 type AppApi = {
   sessions: {
     list: () => Promise<SessionItem[]>
@@ -80,8 +82,12 @@ type AppApi = {
       oldPath: string
       newPath: string
     }) => Promise<{ ok: true; path: string }>
-    deleteRemoteEntry: (payload: { path: string; recursive?: boolean }) => Promise<{ ok: true; path: string }>
+    deleteRemoteEntry: (payload: {
+      path: string
+      recursive?: boolean
+    }) => Promise<{ ok: true; path: string }>
     getSystemMetrics: () => Promise<SystemMetrics | null>
+    getLiveMetrics: () => Promise<LiveSystemMetrics | null>
     input: (data: string) => void
     resize: (size: { cols: number; rows: number }) => void
     onData: (listener: (data: string) => void) => () => void

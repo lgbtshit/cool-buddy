@@ -5,6 +5,7 @@ import { httpClient } from '../lib/http-client'
 import type {
   ConnectionForm,
   ConnectionState,
+  LiveSystemMetrics,
   Locale,
   RemoteDirectory,
   RemoteEntry,
@@ -16,6 +17,8 @@ import type {
 } from '../types/ssh-console'
 
 const TAB_STORAGE_KEY = 'cool-buddy:open-tabs'
+const LIVE_METRICS_REFRESH_INTERVAL_MS = 2000
+const FULL_METRICS_REFRESH_INTERVAL_MS = 15000
 
 function createDefaultForm(): ConnectionForm {
   return {
@@ -57,6 +60,10 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const explorerBusy = ref(false)
   const explorerError = ref('')
   const metricsLoading = ref(false)
+  let liveMetricsRefreshTimer: number | null = null
+  let fullMetricsRefreshTimer: number | null = null
+  let metricsRequestPending = false
+  let liveMetricsRequestPending = false
   const form = ref<ConnectionForm>(createDefaultForm())
   const sessionDraft = ref<SessionDraft>(createDefaultSessionDraft())
 
@@ -99,9 +106,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const canSaveSession = computed(() => {
     return Boolean(
       sessionDraft.value.name.trim() &&
-        sessionDraft.value.host.trim() &&
-        sessionDraft.value.username.trim() &&
-        sessionDraft.value.port
+      sessionDraft.value.host.trim() &&
+      sessionDraft.value.username.trim() &&
+      sessionDraft.value.port
     )
   })
 
@@ -179,7 +186,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     sessionsLoaded.value = true
 
     if (items.length > 0) {
-      let storedTabs: string[] = []
+      let storedTabs: string[]
       try {
         storedTabs = JSON.parse(window.localStorage.getItem(TAB_STORAGE_KEY) ?? '[]') as string[]
       } catch {
@@ -238,6 +245,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     statusMessage.value = `${t('connected')} ${form.value.host}:${form.value.port}`
 
     await loadSystemMetrics()
+    startMetricsRefresh()
     await loadRemoteDirectory(result.remotePath)
   }
 
@@ -248,6 +256,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   }
 
   async function disconnect() {
+    stopMetricsRefresh()
     await window.api.ssh.disconnect()
   }
 
@@ -376,20 +385,80 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     }
   }
 
-  async function loadSystemMetrics() {
-    if (!isConnected.value) {
-      systemMetrics.value = null
-      metricsLoading.value = false
+  function stopMetricsRefresh() {
+    if (liveMetricsRefreshTimer !== null) {
+      window.clearInterval(liveMetricsRefreshTimer)
+      liveMetricsRefreshTimer = null
+    }
+
+    if (fullMetricsRefreshTimer !== null) {
+      window.clearInterval(fullMetricsRefreshTimer)
+      fullMetricsRefreshTimer = null
+    }
+  }
+
+  function startMetricsRefresh() {
+    stopMetricsRefresh()
+    if (!isConnected.value) return
+
+    liveMetricsRefreshTimer = window.setInterval(() => {
+      void loadLiveMetrics()
+    }, LIVE_METRICS_REFRESH_INTERVAL_MS)
+
+    fullMetricsRefreshTimer = window.setInterval(() => {
+      void loadSystemMetrics({ silent: true })
+    }, FULL_METRICS_REFRESH_INTERVAL_MS)
+  }
+
+  async function loadLiveMetrics() {
+    if (!isConnected.value || liveMetricsRequestPending) {
       return
     }
 
-    metricsLoading.value = true
+    liveMetricsRequestPending = true
+
+    try {
+      const liveMetrics = await window.api.ssh.getLiveMetrics()
+      if (!liveMetrics) {
+        return
+      }
+
+      systemMetrics.value = systemMetrics.value
+        ? {
+            ...systemMetrics.value,
+            ...liveMetrics
+          }
+        : createFallbackMetricsSnapshot(liveMetrics)
+    } finally {
+      liveMetricsRequestPending = false
+    }
+  }
+
+  async function loadSystemMetrics(options?: { silent?: boolean }) {
+    if (!isConnected.value || metricsRequestPending) {
+      if (!isConnected.value) {
+        systemMetrics.value = null
+        metricsLoading.value = false
+      }
+      return
+    }
+
+    metricsRequestPending = true
+
+    const silent = options?.silent ?? false
+    if (!silent) {
+      metricsLoading.value = true
+    }
+
     try {
       systemMetrics.value = await window.api.ssh.getSystemMetrics()
     } catch {
       systemMetrics.value = null
     } finally {
-      metricsLoading.value = false
+      metricsRequestPending = false
+      if (!silent) {
+        metricsLoading.value = false
+      }
     }
   }
 
@@ -398,12 +467,15 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     statusMessage.value = payload.message
 
     if (payload.status === 'disconnected' || payload.status === 'error') {
+      stopMetricsRefresh()
       remoteDirectory.value = null
       remotePreview.value = null
       systemMetrics.value = null
       explorerBusy.value = false
       explorerLoading.value = false
       metricsLoading.value = false
+      metricsRequestPending = false
+      liveMetricsRequestPending = false
       if (payload.status === 'disconnected') {
         explorerError.value = ''
       }
@@ -449,6 +521,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     createRemoteDirectory,
     deleteRemoteEntry,
     latencyLabel,
+    loadLiveMetrics,
     loadSystemMetrics,
     loadSessions,
     loadRemoteDirectory,
@@ -478,6 +551,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     showHiddenFiles,
     status,
     statusMessage,
+    startMetricsRefresh,
+    stopMetricsRefresh,
     systemMetrics,
     t,
     tabMenu,
@@ -487,3 +562,16 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     isConnected
   }
 })
+function createFallbackMetricsSnapshot(liveMetrics: LiveSystemMetrics): SystemMetrics {
+  return {
+    cpuPercent: liveMetrics.cpuPercent,
+    memoryUsedMb: liveMetrics.memoryUsedMb,
+    memoryTotalMb: liveMetrics.memoryTotalMb,
+    dockerRunning: null,
+    hostname: null,
+    osName: null,
+    kernelVersion: null,
+    architecture: null,
+    uptime: null
+  }
+}

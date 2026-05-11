@@ -1,5 +1,17 @@
 <script setup lang="ts">
-import { Circle, Grid2x2, History, Languages, LayoutGrid, MoreHorizontal, Plus, Server, Database, HardDrive, X } from 'lucide-vue-next'
+import {
+  Circle,
+  Grid2x2,
+  History,
+  Languages,
+  LayoutGrid,
+  MoreHorizontal,
+  Plus,
+  Server,
+  Database,
+  HardDrive,
+  X
+} from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { useAppCopy } from '../../composables/use-app-copy'
 import { useSshConsoleStore } from '../../stores/ssh-console'

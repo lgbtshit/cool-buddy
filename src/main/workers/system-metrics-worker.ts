@@ -62,7 +62,7 @@ function parseSystemMetrics(payload: RawSystemMetrics): SystemMetrics | null {
   const uptime =
     uptimeText && /^\d+$/.test(uptimeText)
       ? formatUptimeSeconds(Number.parseInt(uptimeText, 10))
-      : uptimeText ?? (Number.isFinite(uptimeSeconds) ? formatUptimeSeconds(uptimeSeconds) : null)
+      : (uptimeText ?? (Number.isFinite(uptimeSeconds) ? formatUptimeSeconds(uptimeSeconds) : null))
 
   return {
     cpuPercent: Number(cpuPercent.toFixed(1)),

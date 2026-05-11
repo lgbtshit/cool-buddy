@@ -7,8 +7,10 @@ import { disposeSsh } from '../ssh/ssh-runtime'
 
 export function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: 1328,
+    height: 832,
+    minWidth: 1328,
+    minHeight: 832,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),

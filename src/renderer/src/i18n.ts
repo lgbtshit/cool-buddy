@@ -24,7 +24,8 @@ export const messages = {
     splitPane: '\u5206\u5c4f',
     sessionDetails: '\u4f1a\u8bdd\u8be6\u60c5',
     noSessions: '\u8fd8\u6ca1\u6709\u4f1a\u8bdd',
-    noSessionsHint: '\u5148\u65b0\u5efa\u4e00\u4e2a SSH \u4f1a\u8bdd\uff0c\u8fd9\u4e2a\u5de5\u4f5c\u53f0\u5c31\u4f1a\u6d3b\u8d77\u6765\u3002',
+    noSessionsHint:
+      '\u5148\u65b0\u5efa\u4e00\u4e2a SSH \u4f1a\u8bdd\uff0c\u8fd9\u4e2a\u5de5\u4f5c\u53f0\u5c31\u4f1a\u6d3b\u8d77\u6765\u3002',
     createSession: '\u65b0\u5efa\u4f1a\u8bdd',
     createFirstSession: '\u521b\u5efa\u7b2c\u4e00\u4e2a\u4f1a\u8bdd',
     saveSession: '\u4fdd\u5b58\u4f1a\u8bdd',
@@ -48,7 +49,8 @@ export const messages = {
     running: '\u8fd0\u884c\u4e2d',
     unavailable: '\u6682\u4e0d\u53ef\u7528',
     emptyMetricsTitle: '\u8fd8\u6ca1\u6709\u8fdc\u7a0b\u6307\u6807',
-    emptyMetricsHint: '\u8fde\u63a5\u5230\u652f\u6301\u547d\u4ee4\u91c7\u96c6\u7684 Linux \u4e3b\u673a\u540e\uff0c\u8fd9\u91cc\u4f1a\u663e\u793a CPU\u3001\u5185\u5b58\u548c Docker \u72b6\u6001\u3002',
+    emptyMetricsHint:
+      '\u8fde\u63a5\u5230\u652f\u6301\u547d\u4ee4\u91c7\u96c6\u7684 Linux \u4e3b\u673a\u540e\uff0c\u8fd9\u91cc\u4f1a\u663e\u793a CPU\u3001\u5185\u5b58\u548c Docker \u72b6\u6001\u3002',
     aiAgent: 'AI \u52a9\u624b',
     task: '\u4efb\u52a1',
     executedAt: '\u6267\u884c\u65f6\u95f4',
@@ -80,13 +82,15 @@ export const messages = {
     sessionError: '\u8fde\u63a5\u5931\u8d25',
     removeTab: '\u5220\u9664\u6807\u7b7e',
     explorerDisconnectedTitle: '\u672a\u8fde\u63a5\u8fdc\u7a0b\u4f1a\u8bdd',
-    explorerDisconnectedHint: '\u5148\u8fde\u63a5\u5f53\u524d\u4f1a\u8bdd\uff0c\u8fd9\u91cc\u624d\u4f1a\u663e\u793a\u8fdc\u7a0b\u6587\u4ef6\u4e0e\u6587\u4ef6\u5939\u3002',
+    explorerDisconnectedHint:
+      '\u5148\u8fde\u63a5\u5f53\u524d\u4f1a\u8bdd\uff0c\u8fd9\u91cc\u624d\u4f1a\u663e\u793a\u8fdc\u7a0b\u6587\u4ef6\u4e0e\u6587\u4ef6\u5939\u3002',
     loadingRemoteFiles: '\u6b63\u5728\u52a0\u8f7d\u8fdc\u7a0b\u6587\u4ef6...',
     remotePathPlaceholder: '\u8f93\u5165\u8fdc\u7a0b\u8def\u5f84\u540e\u56de\u8f66',
     showHiddenFiles: '\u663e\u793a\u9690\u85cf\u6587\u4ef6',
     hideHiddenFiles: '\u9690\u85cf\u9690\u85cf\u6587\u4ef6',
     emptyRemoteFolder: '\u5f53\u524d\u76ee\u5f55\u662f\u7a7a\u7684',
-    emptyRemoteFolderHint: '\u53ef\u4ee5\u62d6\u5165\u6587\u4ef6\u4e0a\u4f20\uff0c\u6216\u8005\u65b0\u5efa\u6587\u4ef6\u5939\u3002',
+    emptyRemoteFolderHint:
+      '\u53ef\u4ee5\u62d6\u5165\u6587\u4ef6\u4e0a\u4f20\uff0c\u6216\u8005\u65b0\u5efa\u6587\u4ef6\u5939\u3002',
     newFolderPrompt: '\u8f93\u5165\u65b0\u6587\u4ef6\u5939\u540d\u79f0',
     renamePrompt: '\u8f93\u5165\u65b0\u540d\u79f0',
     deleteConfirm: '\u786e\u8ba4\u5220\u9664',
@@ -136,7 +140,8 @@ export const messages = {
     running: 'Running',
     unavailable: 'Unavailable',
     emptyMetricsTitle: 'No remote metrics yet',
-    emptyMetricsHint: 'Connect to a Linux host that supports command collection to show CPU, memory, and Docker status here.',
+    emptyMetricsHint:
+      'Connect to a Linux host that supports command collection to show CPU, memory, and Docker status here.',
     aiAgent: 'AI Agent',
     task: 'Task',
     executedAt: 'Executed at',
@@ -166,7 +171,8 @@ export const messages = {
     sessionError: 'Connection Error',
     removeTab: 'Remove Tab',
     explorerDisconnectedTitle: 'Remote session is not connected',
-    explorerDisconnectedHint: 'Connect the current session first to browse real remote files and folders here.',
+    explorerDisconnectedHint:
+      'Connect the current session first to browse real remote files and folders here.',
     loadingRemoteFiles: 'Loading remote files...',
     remotePathPlaceholder: 'Enter a remote path and press Enter',
     showHiddenFiles: 'Show hidden files',

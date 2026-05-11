@@ -3,7 +3,12 @@ import { mkdirSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { join } from 'path'
 import Database from 'better-sqlite3'
-import type { CreateSessionPayload, SessionGroup, SessionItem, SessionRecord } from '../shared/types'
+import type {
+  CreateSessionPayload,
+  SessionGroup,
+  SessionItem,
+  SessionRecord
+} from '../shared/types'
 
 let database: Database.Database | null = null
 

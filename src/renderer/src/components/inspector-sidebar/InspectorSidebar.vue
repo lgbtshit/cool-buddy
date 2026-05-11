@@ -18,7 +18,11 @@ const metricsDetailOpen = ref(false)
     <section class="metrics-card">
       <div class="metrics-header">
         <h2>{{ t('resourceVitals') }}</h2>
-        <button class="mini-icon-btn" :disabled="!isConnected || metricsLoading" @click="void store.loadSystemMetrics()">
+        <button
+          class="mini-icon-btn"
+          :disabled="!isConnected || metricsLoading"
+          @click="void store.loadSystemMetrics()"
+        >
           <Gauge :size="14" />
         </button>
       </div>
@@ -30,17 +34,13 @@ const metricsDetailOpen = ref(false)
           <div class="metric-summary-head">
             <div class="metric-inline">
               <ServerCog :size="16" />
-              <span>{{ t('deviceInfo') }}</span>
+              <span class="metric-device-name">{{
+                systemMetrics.hostname ?? t('deviceSummaryFallback')
+              }}</span>
             </div>
-            <button class="mini-text-btn" @click="metricsDetailOpen = true">{{ t('viewDetails') }}</button>
-          </div>
-
-          <div class="metric-summary-copy">
-            <strong>{{ systemMetrics.hostname ?? t('deviceSummaryFallback') }}</strong>
-            <p>
-              {{ systemMetrics.osName ?? t('unavailable') }}
-              <span v-if="systemMetrics.uptime"> · {{ systemMetrics.uptime }}</span>
-            </p>
+            <button class="mini-text-btn" @click="metricsDetailOpen = true">
+              {{ t('viewDetails') }}
+            </button>
           </div>
         </div>
 
@@ -77,7 +77,11 @@ const metricsDetailOpen = ref(false)
       />
     </section>
 
-    <MetricsDetailModal :metrics="systemMetrics" :open="metricsDetailOpen" @close="metricsDetailOpen = false" />
+    <MetricsDetailModal
+      :metrics="systemMetrics"
+      :open="metricsDetailOpen"
+      @close="metricsDetailOpen = false"
+    />
 
     <section class="agent-card">
       <div class="agent-header">

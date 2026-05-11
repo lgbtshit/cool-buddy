@@ -10,7 +10,9 @@ export function registerSessionIpc(): void {
   }
 
   ipcMain.handle('sessions:list', async () => listSessions())
-  ipcMain.handle('sessions:create', async (_event, payload: CreateSessionPayload) => createSession(payload))
+  ipcMain.handle('sessions:create', async (_event, payload: CreateSessionPayload) =>
+    createSession(payload)
+  )
 
   sessionHandlersRegistered = true
 }

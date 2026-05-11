@@ -123,6 +123,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  store.stopMetricsRefresh()
   removeDataListener?.()
   removeStatusListener?.()
   removeTerminalInput?.dispose()

@@ -2,7 +2,14 @@ import { ipcMain } from 'electron'
 import { Client } from 'ssh2'
 import type { ConnectConfig } from 'ssh2'
 import { getMainWindow } from '../state/main-window'
-import { broadcastSshStatus, disposeSsh, getSshStream, setSftpClient, setSshClient, setSshStream } from '../ssh/ssh-runtime'
+import {
+  broadcastSshStatus,
+  disposeSsh,
+  getSshStream,
+  setSftpClient,
+  setSshClient,
+  setSshStream
+} from '../ssh/ssh-runtime'
 import {
   createRemoteDirectory,
   deleteRemoteEntry,
@@ -12,7 +19,7 @@ import {
   sftpRealpath,
   uploadRemoteFile
 } from '../ssh/remote-files'
-import { readSystemMetrics } from '../ssh/system-metrics'
+import { readLiveSystemMetrics, readSystemMetrics } from '../ssh/system-metrics'
 import type { SshConnectPayload } from '../shared/types'
 
 let sshHandlersRegistered = false
@@ -131,10 +138,13 @@ export function registerSshIpc(): void {
   ipcMain.handle('ssh:list-remote', async (_event, payload) => listRemoteDirectory(payload))
   ipcMain.handle('ssh:read-remote-file', async (_event, payload) => readRemoteFile(payload))
   ipcMain.handle('ssh:upload-remote-file', async (_event, payload) => uploadRemoteFile(payload))
-  ipcMain.handle('ssh:create-remote-directory', async (_event, payload) => createRemoteDirectory(payload))
+  ipcMain.handle('ssh:create-remote-directory', async (_event, payload) =>
+    createRemoteDirectory(payload)
+  )
   ipcMain.handle('ssh:rename-remote-entry', async (_event, payload) => renameRemoteEntry(payload))
   ipcMain.handle('ssh:delete-remote-entry', async (_event, payload) => deleteRemoteEntry(payload))
   ipcMain.handle('ssh:get-system-metrics', async () => readSystemMetrics())
+  ipcMain.handle('ssh:get-live-metrics', async () => readLiveSystemMetrics())
 
   sshHandlersRegistered = true
 }

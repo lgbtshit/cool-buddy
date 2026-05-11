@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { Activity, Database, HardDrive, History, Plus, Search, Server, SquareTerminal } from 'lucide-vue-next'
+import {
+  Activity,
+  Database,
+  HardDrive,
+  History,
+  Plus,
+  Search,
+  Server,
+  SquareTerminal
+} from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { useAppCopy } from '../../composables/use-app-copy'
 import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue'
@@ -60,24 +69,35 @@ const handleConnect = async (session: SessionItem) => {
           <button
             v-for="session in filteredSessions.filter((item) => item.group === group.key)"
             :key="session.id"
-              class="session-item"
-              :class="{ active: session.id === activeSessionId }"
-              @click="void handleConnect(session)"
-            >
-              <div class="session-main">
-                <span class="session-dot" :data-state="session.status"></span>
-                <component :is="sessionIconMap[session.icon]" :size="14" class="session-type" />
-                <span class="session-name">{{ session.name }}</span>
-              </div>
+            class="session-item"
+            :class="{ active: session.id === activeSessionId }"
+            @click="void handleConnect(session)"
+          >
+            <div class="session-main">
+              <span class="session-dot" :data-state="session.status"></span>
+              <component :is="sessionIconMap[session.icon]" :size="14" class="session-type" />
+              <span class="session-name">{{ session.name }}</span>
+            </div>
             <History v-if="session.group === 'staging'" :size="14" class="session-action" />
-            <Activity v-else-if="session.id === activeSessionId" :size="14" class="session-action" />
+            <Activity
+              v-else-if="session.id === activeSessionId"
+              :size="14"
+              class="session-action"
+            />
           </button>
         </section>
       </div>
 
-      <EmptyStatePanel v-else :description="t('noSessionsHint')" :icon="SquareTerminal" :title="t('noSessions')">
+      <EmptyStatePanel
+        v-else
+        :description="t('noSessionsHint')"
+        :icon="SquareTerminal"
+        :title="t('noSessions')"
+      >
         <template #actions>
-          <button class="primary-btn" @click="store.openSessionModal()">{{ t('createFirstSession') }}</button>
+          <button class="primary-btn" @click="store.openSessionModal()">
+            {{ t('createFirstSession') }}
+          </button>
         </template>
       </EmptyStatePanel>
     </div>

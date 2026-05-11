@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { Eye, EyeOff, FolderPlus, Pencil, RefreshCw, Trash2, Upload, FileText, FolderOpen } from 'lucide-vue-next'
+import {
+  Eye,
+  EyeOff,
+  FolderPlus,
+  Pencil,
+  RefreshCw,
+  Trash2,
+  Upload,
+  FileText,
+  FolderOpen
+} from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { useAppCopy } from '../../composables/use-app-copy'
@@ -8,8 +18,15 @@ import { useSshConsoleStore } from '../../stores/ssh-console'
 import type { RemoteEntry } from '../../types/ssh-console'
 
 const store = useSshConsoleStore()
-const { explorerBusy, explorerError, explorerLoading, isConnected, remoteDirectory, remotePreview, showHiddenFiles } =
-  storeToRefs(store)
+const {
+  explorerBusy,
+  explorerError,
+  explorerLoading,
+  isConnected,
+  remoteDirectory,
+  remotePreview,
+  showHiddenFiles
+} = storeToRefs(store)
 const { t } = useAppCopy()
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -142,13 +159,25 @@ async function submitRename(entry: RemoteEntry) {
     <header class="section-label">
       <span>{{ t('fileExplorer') }}</span>
       <div class="explorer-actions">
-        <button class="mini-icon-btn" :disabled="!isConnected || explorerBusy" @click="triggerUploadPicker">
+        <button
+          class="mini-icon-btn"
+          :disabled="!isConnected || explorerBusy"
+          @click="triggerUploadPicker"
+        >
           <Upload :size="14" />
         </button>
-        <button class="mini-icon-btn" :disabled="!isConnected || explorerBusy" @click="void handleCreateDirectory()">
+        <button
+          class="mini-icon-btn"
+          :disabled="!isConnected || explorerBusy"
+          @click="void handleCreateDirectory()"
+        >
           <FolderPlus :size="14" />
         </button>
-        <button class="mini-icon-btn" :disabled="!isConnected || explorerLoading || explorerBusy" @click="void store.toggleHiddenFiles()">
+        <button
+          class="mini-icon-btn"
+          :disabled="!isConnected || explorerLoading || explorerBusy"
+          @click="void store.toggleHiddenFiles()"
+        >
           <component :is="showHiddenFiles ? EyeOff : Eye" :size="14" />
         </button>
         <button
@@ -161,7 +190,13 @@ async function submitRename(entry: RemoteEntry) {
       </div>
     </header>
 
-    <input ref="fileInput" class="hidden-upload-input" type="file" multiple @change="void handleFileSelection($event)" />
+    <input
+      ref="fileInput"
+      class="hidden-upload-input"
+      type="file"
+      multiple
+      @change="void handleFileSelection($event)"
+    />
 
     <EmptyStatePanel
       v-if="!isConnected"
@@ -223,10 +258,18 @@ async function submitRename(entry: RemoteEntry) {
               >
                 <Eye :size="13" />
               </button>
-              <button class="mini-icon-btn" :disabled="explorerBusy" @click.stop="void handleRename(entry)">
+              <button
+                class="mini-icon-btn"
+                :disabled="explorerBusy"
+                @click.stop="void handleRename(entry)"
+              >
                 <Pencil :size="13" />
               </button>
-              <button class="mini-icon-btn" :disabled="explorerBusy" @click.stop="void handleDelete(entry)">
+              <button
+                class="mini-icon-btn"
+                :disabled="explorerBusy"
+                @click.stop="void handleDelete(entry)"
+              >
                 <Trash2 :size="13" />
               </button>
             </div>
