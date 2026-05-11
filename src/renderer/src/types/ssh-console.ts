@@ -76,3 +76,5 @@ export type RemoteApp = {
   ports: string | null
   description: string | null
 }
+
+export type LogTailState = 'idle' | 'running' | 'error'

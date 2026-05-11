@@ -6,7 +6,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAppCopy } from '../../composables/use-app-copy'
 import InspectorSidebar from '../../components/inspector-sidebar/InspectorSidebar.vue'
+import KeybindingsModal from '../../components/keybindings-modal/KeybindingsModal.vue'
+import LogAlertModal from '../../components/log-alert-modal/LogAlertModal.vue'
 import LogPanel from '../../components/log-panel/LogPanel.vue'
+import LogSettingsModal from '../../components/log-settings-modal/LogSettingsModal.vue'
 import PasteConfirmModal from '../../components/paste-confirm-modal/PasteConfirmModal.vue'
 import SessionModal from '../../components/session-modal/SessionModal.vue'
 import SessionSidebar from '../../components/session-sidebar/SessionSidebar.vue'
@@ -15,11 +18,28 @@ import TopBar from '../../components/top-bar/TopBar.vue'
 import { useSshConsoleStore } from '../../stores/ssh-console'
 
 const store = useSshConsoleStore()
-const { activeSession, connectionLabel } = storeToRefs(store)
+const {
+  activeSession,
+  connectionLabel,
+  latencyLabel,
+  isConnected,
+  remoteDirectory,
+  logTailError,
+  logTailLineLimit,
+  logTailLines,
+  logTailPath,
+  logTailState,
+  canStartLogTail
+} = storeToRefs(store)
 const { t } = useAppCopy()
 
 const terminalPanelRef = ref<InstanceType<typeof TerminalPanel> | null>(null)
 const pasteConfirmOpen = ref(false)
+const keybindingsOpen = ref(false)
+const logAlertMessage = ref('')
+const logAlertOpen = ref(false)
+const logSettingsDraft = ref(50)
+const logSettingsOpen = ref(false)
 const pendingPasteContent = ref('')
 
 const terminal = new Terminal({
@@ -56,22 +76,19 @@ const fitAddon = new FitAddon()
 terminal.loadAddon(fitAddon)
 
 let removeDataListener: (() => void) | null = null
+let removeLogDataListener: (() => void) | null = null
+let removeLogStatusListener: (() => void) | null = null
 let removeStatusListener: (() => void) | null = null
 let removeTerminalInput: { dispose: () => void } | null = null
 let resizeObserver: ResizeObserver | null = null
 
-const logLines = computed(() => [
-  '2023/10/24 16:45:12 [error] 1423#0: *12435 connect() failed (111: Connection refused) while connecting to upstream...',
-  '2023/10/24 16:45:14 [error] 1423#0: *12437 connect() failed (111: Connection refused) while connecting to upstream...',
-  '2023/10/24 16:45:20 [info] Agent 01 detected upstream failure. Attempting restart cycle...'
-])
-
 const terminalSessionName = computed(() => activeSession.value?.name ?? '--')
 const isMacOS = navigator.userAgent.toLowerCase().includes('mac')
-
-function writeSystemLine(message: string) {
-  terminal.writeln(`\r\n${message}\r\n`)
-}
+const hasActiveSession = computed(() => Boolean(activeSession.value))
+const footerSessionMeta = computed(() => {
+  if (!activeSession.value) return ''
+  return `${activeSession.value.host}:${activeSession.value.port} | ${latencyLabel.value}`
+})
 
 async function copySelection() {
   const selection = terminal.getSelection()
@@ -99,6 +116,39 @@ function closePasteConfirm() {
   terminal.focus()
 }
 
+function closeKeybindingsModal() {
+  keybindingsOpen.value = false
+}
+
+function openLogSettingsModal() {
+  logSettingsDraft.value = logTailLineLimit.value
+  logSettingsOpen.value = true
+}
+
+function closeLogSettingsModal() {
+  logSettingsOpen.value = false
+}
+
+function saveLogSettings() {
+  store.setLogTailLineLimit(logSettingsDraft.value)
+  logSettingsOpen.value = false
+}
+
+function closeLogAlertModal() {
+  logAlertOpen.value = false
+  logAlertMessage.value = ''
+}
+
+async function handleStartLogTail() {
+  try {
+    await store.startLogTail()
+  } catch (error) {
+    const message = error instanceof Error ? error.message.trim() : t('logInvalidFileMessage')
+    logAlertMessage.value = message || t('logInvalidFileMessage')
+    logAlertOpen.value = true
+  }
+}
+
 function executeAllPaste() {
   terminal.paste(pendingPasteContent.value)
   closePasteConfirm()
@@ -111,8 +161,7 @@ async function executeLineByLinePaste() {
   try {
     await window.api.ssh.executeCommandBatch({ content })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Batch execution failed.'
-    writeSystemLine(message)
+    console.error('Batch execution failed.', error)
   }
 }
 
@@ -161,8 +210,6 @@ onMounted(() => {
     return true
   })
 
-  writeSystemLine(t('readyBanner'))
-  writeSystemLine(t('terminalIdle'))
   void store.loadSessions({ connectLastSession: true })
 
   removeTerminalInput = terminal.onData((data) => {
@@ -173,15 +220,30 @@ onMounted(() => {
     terminal.write(data)
   })
 
+  removeLogDataListener = window.api.ssh.onLogData((data) => {
+    store.appendLogTailChunk(data)
+  })
+
+  removeLogStatusListener = window.api.ssh.onLogStatus((payload) => {
+    store.setLogTailStatus(payload)
+
+    if (payload.status === 'error') {
+      logAlertMessage.value = payload.message.trim() || t('logInvalidFileMessage')
+      logAlertOpen.value = true
+    }
+  })
+
   removeStatusListener = window.api.ssh.onStatus((payload) => {
     store.setStatus(payload)
+
+    if (payload.status === 'connecting' || payload.status === 'disconnected' || payload.status === 'error') {
+      terminal.reset()
+    }
 
     if (payload.status === 'connected') {
       syncTerminalSize()
       terminal.focus()
     }
-
-    writeSystemLine(`[${payload.status}] ${payload.message}`)
   })
 
   resizeObserver = new ResizeObserver(() => {
@@ -195,6 +257,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   store.stopMetricsRefresh()
   removeDataListener?.()
+  removeLogDataListener?.()
+  removeLogStatusListener?.()
   removeStatusListener?.()
   removeTerminalInput?.dispose()
   resizeObserver?.disconnect()
@@ -214,18 +278,38 @@ onBeforeUnmount(() => {
         <section class="terminal-stack">
           <TerminalPanel
             ref="terminalPanelRef"
-            :cols="terminal.cols"
             :connection-label="connectionLabel"
-            :rows="terminal.rows"
+            :empty-description="t('terminalIdle')"
+            :has-active-session="hasActiveSession"
             :session-name="terminalSessionName"
             :title="t('terminalTitle')"
           />
 
           <LogPanel
-            :auto-pause-off="t('autoPauseOff')"
-            :log-lines="logLines"
+            :can-start="canStartLogTail"
+            :completion-base-path="remoteDirectory?.path"
+            :disconnected-hint="t('logDisconnectedHint')"
+            :disconnected-title="t('logDisconnectedTitle')"
+            :empty-hint="t('logEmptyHint')"
+            :empty-title="t('logEmptyTitle')"
+            :is-connected="isConnected"
+            :is-running="logTailState === 'running'"
+            :log-error="logTailError"
+            :log-line-limit="logTailLineLimit"
+            :log-lines="logTailLines"
+            :log-path="logTailPath"
+            :log-settings-label="t('logSettings')"
             :log-title="t('logTitle')"
+            :path-placeholder="t('logPathPlaceholder')"
+            :running-label="t('logRunning')"
+            :start-label="t('logStart')"
+            :stop-label="t('logStop')"
+            :stopped-label="t('logStopped')"
             :waiting-events="t('waitingEvents')"
+            @open-settings="openLogSettingsModal"
+            @path-input="store.setLogTailPath"
+            @start="void handleStartLogTail()"
+            @stop="void store.stopLogTail()"
           />
         </section>
 
@@ -234,15 +318,31 @@ onBeforeUnmount(() => {
     </section>
 
     <footer class="status-footer">
-      <span>{{ t('footerConnection') }} | {{ t('latency') }}: 24ms</span>
+      <span v-if="hasActiveSession">{{ footerSessionMeta }}</span>
       <div class="footer-actions">
-        <button>{{ t('keyBindings') }}</button>
+        <button @click="keybindingsOpen = true">{{ t('keyBindings') }}</button>
         <button>{{ t('quickActions') }}</button>
         <button>{{ t('terminalSettings') }}</button>
       </div>
     </footer>
 
     <SessionModal />
+    <KeybindingsModal :open="keybindingsOpen" @close="closeKeybindingsModal" />
+    <LogAlertModal
+      :message="logAlertMessage"
+      :open="logAlertOpen"
+      :title="t('logInvalidFileTitle')"
+      @close="closeLogAlertModal"
+    />
+    <LogSettingsModal
+      :line-limit="logSettingsDraft"
+      :max-lines="500"
+      :min-lines="1"
+      :open="logSettingsOpen"
+      @close="closeLogSettingsModal"
+      @save="saveLogSettings"
+      @update:line-limit="logSettingsDraft = $event"
+    />
     <PasteConfirmModal
       :content="pendingPasteContent"
       :open="pasteConfirmOpen"

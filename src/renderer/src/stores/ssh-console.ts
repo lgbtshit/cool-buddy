@@ -6,6 +6,7 @@ import type {
   ConnectionForm,
   ConnectionState,
   LiveSystemMetrics,
+  LogTailState,
   Locale,
   RemoteApp,
   RemoteDirectory,
@@ -76,6 +77,13 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const remoteAppsLoading = ref(false)
   const remoteAppsError = ref('')
   const metricsLoading = ref(false)
+  const logTailPath = ref('')
+  const logTailLineLimit = ref(50)
+  const logTailLines = ref<string[]>([])
+  const logTailState = ref<LogTailState>('idle')
+  const logTailError = ref('')
+  const logTailStatusMessage = ref('')
+  let logTailRemainder = ''
   let liveMetricsRefreshTimer: number | null = null
   let fullMetricsRefreshTimer: number | null = null
   let latencyRefreshTimer: number | null = null
@@ -131,6 +139,23 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   })
 
   const isConnected = computed(() => status.value === 'connected')
+  const canStartLogTail = computed(() => {
+    return Boolean(
+      isConnected.value && logTailPath.value.trim() && logTailState.value !== 'running'
+    )
+  })
+
+  function resetLogTail(options?: { clearPath?: boolean }) {
+    logTailLines.value = []
+    logTailState.value = 'idle'
+    logTailError.value = ''
+    logTailStatusMessage.value = ''
+    logTailRemainder = ''
+
+    if (options?.clearPath) {
+      logTailPath.value = ''
+    }
+  }
 
   function applyLocale() {
     httpClient.defaults.headers.common['Accept-Language'] = locale.value
@@ -159,6 +184,13 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     tabMenu.value = null
   }
 
+  function resetActiveSession() {
+    activeSessionId.value = ''
+    form.value = createDefaultForm()
+    status.value = 'idle'
+    statusMessage.value = t('ready')
+  }
+
   function selectSession(session: SessionItem, options?: { openTab?: boolean }) {
     activeSessionId.value = session.id
     form.value = {
@@ -178,10 +210,36 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     tabMenu.value = payload
   }
 
-  function removeTab(sessionId: string) {
-    openTabIds.value = openTabIds.value.filter((id) => id !== sessionId)
-    persistOpenTabs()
+  async function removeTab(sessionId: string) {
+    const isClosingActiveTab = sessionId === activeSessionId.value
+    const remainingTabIds = openTabIds.value.filter((id) => id !== sessionId)
+
     closeTabMenu()
+
+    if (isClosingActiveTab && status.value !== 'idle' && status.value !== 'disconnected') {
+      await disconnect()
+    }
+
+    openTabIds.value = remainingTabIds
+    persistOpenTabs()
+
+    if (!isClosingActiveTab) {
+      return
+    }
+
+    const nextSession =
+      openTabs.value.find((item) => item.id === remainingTabIds[0]) ??
+      sessions.value.find((item) => item.id === remainingTabIds[0]) ??
+      null
+
+    if (nextSession) {
+      selectSession(nextSession, { openTab: false })
+      status.value = 'idle'
+      statusMessage.value = t('ready')
+      return
+    }
+
+    resetActiveSession()
   }
 
   function resetSessionDraft() {
@@ -254,6 +312,51 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     return created
   }
 
+  async function deleteSession(sessionId: string) {
+    const isDeletingActiveSession = sessionId === activeSessionId.value
+    const nextTabIds = openTabIds.value.filter((id) => id !== sessionId)
+
+    closeTabMenu()
+
+    if (isDeletingActiveSession && status.value !== 'idle' && status.value !== 'disconnected') {
+      await disconnect()
+    }
+
+    await window.api.sessions.delete(sessionId)
+
+    sessions.value = sessions.value.filter((item) => item.id !== sessionId)
+    openTabIds.value = nextTabIds
+    persistOpenTabs()
+
+    if (!sessions.value.length) {
+      resetActiveSession()
+      sessionModalOpen.value = true
+      return
+    }
+
+    if (!isDeletingActiveSession) {
+      return
+    }
+
+    const nextSession =
+      sessions.value.find((item) => item.id === nextTabIds[0]) ?? sessions.value[0] ?? null
+
+    if (!nextSession) {
+      resetActiveSession()
+      sessionModalOpen.value = true
+      return
+    }
+
+    if (!nextTabIds.includes(nextSession.id)) {
+      openTabIds.value = [nextSession.id, ...nextTabIds]
+      persistOpenTabs()
+    }
+
+    selectSession(nextSession, { openTab: false })
+    status.value = 'idle'
+    statusMessage.value = t('ready')
+  }
+
   async function connect() {
     status.value = 'connecting'
     statusMessage.value = `${t('sessionConnecting')} ${form.value.host}:${form.value.port}...`
@@ -286,7 +389,75 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
   async function disconnect() {
     stopMetricsRefresh()
+    await stopLogTail()
     await window.api.ssh.disconnect()
+  }
+
+  function setLogTailPath(value: string) {
+    logTailPath.value = value
+  }
+
+  function setLogTailLineLimit(value: number) {
+    logTailLineLimit.value = Math.max(1, Math.min(500, Math.trunc(value || 50)))
+    logTailLines.value = logTailLines.value.slice(-logTailLineLimit.value)
+  }
+
+  function appendLogTailChunk(chunk: string) {
+    const normalizedChunk = chunk.replace(/\r\n/g, '\n')
+    const combined = `${logTailRemainder}${normalizedChunk}`
+    const parts = combined.split('\n')
+    logTailRemainder = parts.pop() ?? ''
+
+    if (!parts.length) {
+      return
+    }
+
+    logTailLines.value = [...logTailLines.value, ...parts].slice(-logTailLineLimit.value)
+  }
+
+  function setLogTailStatus(payload: { status: LogTailState; path: string; message: string }) {
+    logTailState.value = payload.status
+    logTailStatusMessage.value = payload.message.trim()
+
+    if (payload.path && payload.path !== logTailPath.value) {
+      logTailPath.value = payload.path
+    }
+
+    if (payload.status === 'error') {
+      logTailError.value = payload.message.trim()
+      logTailLines.value = []
+      logTailRemainder = ''
+      return
+    }
+
+    if (payload.status === 'idle') {
+      logTailError.value = ''
+      logTailLines.value = []
+      logTailRemainder = ''
+      return
+    }
+
+    logTailError.value = ''
+  }
+
+  async function startLogTail() {
+    const path = logTailPath.value.trim()
+    if (!path || !isConnected.value) return
+
+    logTailLines.value = []
+    logTailError.value = ''
+    logTailStatusMessage.value = ''
+    logTailRemainder = ''
+    await window.api.ssh.startLogTail({ path, lineCount: logTailLineLimit.value })
+  }
+
+  async function stopLogTail() {
+    if (logTailState.value === 'idle' && !logTailLines.value.length && !logTailError.value) {
+      return
+    }
+
+    await window.api.ssh.stopLogTail()
+    resetLogTail()
   }
 
   function patchRemoteDirectoryEntries(
@@ -631,6 +802,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       remotePreview.value = null
       systemMetrics.value = null
       latencyMs.value = null
+      resetLogTail()
       explorerBusy.value = false
       explorerLoading.value = false
       remoteAppsLoading.value = false
@@ -683,6 +855,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     form,
     createRemoteDirectory,
     deleteRemoteEntry,
+    deleteSession,
+    appendLogTailChunk,
+    canStartLogTail,
     latencyLabel,
     latencyMs,
     loadLiveMetrics,
@@ -692,6 +867,12 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     loadSessions,
     loadRemoteDirectory,
     locale,
+    logTailError,
+    logTailLineLimit,
+    logTailLines,
+    logTailPath,
+    logTailState,
+    logTailStatusMessage,
     metricsLoading,
     openRemoteEntry,
     openSessionModal,
@@ -708,6 +889,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     saveSession,
     searchQuery,
     selectSession,
+    setLogTailPath,
+    setLogTailLineLimit,
+    setLogTailStatus,
     sessionDraft,
     sessionGroups,
     sessionModalOpen,
@@ -725,6 +909,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     systemMetrics,
     t,
     tabMenu,
+    startLogTail,
+    stopLogTail,
     toggleHiddenFiles,
     toggleLocale,
     uploadRemoteFiles,

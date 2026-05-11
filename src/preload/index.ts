@@ -12,8 +12,19 @@ type SshCommandBatchPayload = {
   content: string
 }
 
+type SshLogTailPayload = {
+  path: string
+  lineCount: number
+}
+
 type SshStatusPayload = {
   status: 'connecting' | 'connected' | 'disconnected' | 'error'
+  message: string
+}
+
+type SshLogStatusPayload = {
+  status: 'idle' | 'running' | 'error'
+  path: string
   message: string
 }
 
@@ -53,6 +64,17 @@ type RemoteDirectory = {
   entries: RemoteEntry[]
 }
 
+type RemotePathCompletionPayload = {
+  input: string
+  basePath?: string
+  filesOnly?: boolean
+}
+
+type RemotePathCompletionResult = {
+  value: string
+  matches: string[]
+}
+
 type SystemMetrics = {
   cpuPercent: number
   memoryUsedMb: number
@@ -82,16 +104,23 @@ const api = {
   sessions: {
     list: (): Promise<SessionItem[]> => ipcRenderer.invoke('sessions:list'),
     create: (payload: CreateSessionPayload): Promise<SessionItem> =>
-      ipcRenderer.invoke('sessions:create', payload)
+      ipcRenderer.invoke('sessions:create', payload),
+    delete: (sessionId: string): Promise<{ ok: true }> => ipcRenderer.invoke('sessions:delete', sessionId)
   },
   ssh: {
     connect: (payload: SshConnectPayload): Promise<{ ok: true; remotePath: string }> =>
       ipcRenderer.invoke('ssh:connect', payload),
     executeCommandBatch: (payload: SshCommandBatchPayload): Promise<{ ok: true }> =>
       ipcRenderer.invoke('ssh:execute-command-batch', payload),
+    startLogTail: (payload: SshLogTailPayload): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('ssh:start-log-tail', payload),
+    stopLogTail: (): Promise<{ ok: true }> => ipcRenderer.invoke('ssh:stop-log-tail'),
     disconnect: () => ipcRenderer.invoke('ssh:disconnect'),
     listRemote: (payload?: { path?: string; showHidden?: boolean }): Promise<RemoteDirectory> =>
       ipcRenderer.invoke('ssh:list-remote', payload),
+    completeRemotePath: (
+      payload: RemotePathCompletionPayload
+    ): Promise<RemotePathCompletionResult> => ipcRenderer.invoke('ssh:complete-remote-path', payload),
     readRemoteFile: (payload: { path: string }): Promise<{ path: string; content: string }> =>
       ipcRenderer.invoke('ssh:read-remote-file', payload),
     uploadRemoteFile: (payload: {
@@ -130,6 +159,17 @@ const api = {
         listener(payload)
       ipcRenderer.on('ssh:status', wrapped)
       return () => ipcRenderer.removeListener('ssh:status', wrapped)
+    },
+    onLogData: (listener: (data: string) => void) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, data: string) => listener(data)
+      ipcRenderer.on('ssh:log-data', wrapped)
+      return () => ipcRenderer.removeListener('ssh:log-data', wrapped)
+    },
+    onLogStatus: (listener: (payload: SshLogStatusPayload) => void) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, payload: SshLogStatusPayload) =>
+        listener(payload)
+      ipcRenderer.on('ssh:log-status', wrapped)
+      return () => ipcRenderer.removeListener('ssh:log-status', wrapped)
     }
   }
 }

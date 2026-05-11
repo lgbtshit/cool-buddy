@@ -9,8 +9,19 @@ export type SshCommandBatchPayload = {
   content: string
 }
 
+export type SshLogTailPayload = {
+  path: string
+  lineCount: number
+}
+
 export type SshStatusPayload = {
   status: 'connecting' | 'connected' | 'disconnected' | 'error'
+  message: string
+}
+
+export type SshLogStatusPayload = {
+  status: 'idle' | 'running' | 'error'
+  path: string
   message: string
 }
 
@@ -59,6 +70,17 @@ export type RemoteEntry = {
 export type RemoteListPayload = {
   path?: string
   showHidden?: boolean
+}
+
+export type RemotePathCompletionPayload = {
+  input: string
+  basePath?: string
+  filesOnly?: boolean
+}
+
+export type RemotePathCompletionResult = {
+  value: string
+  matches: string[]
 }
 
 export type RemoteReadPayload = {

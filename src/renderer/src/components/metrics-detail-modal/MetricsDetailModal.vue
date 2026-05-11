@@ -13,6 +13,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useAppCopy()
+
+function formatMemoryGb(valueMb: number): string {
+  const valueGb = valueMb / 1024
+  return valueGb >= 10 ? valueGb.toFixed(1) : valueGb.toFixed(2)
+}
 </script>
 
 <template>
@@ -55,7 +60,11 @@ const { t } = useAppCopy()
         </div>
         <div class="metrics-detail-row">
           <span>{{ t('memory') }}</span>
-          <strong>{{ metrics.memoryUsedMb }}/{{ metrics.memoryTotalMb }}MB</strong>
+          <strong
+            >{{ formatMemoryGb(metrics.memoryUsedMb) }}/{{
+              formatMemoryGb(metrics.memoryTotalMb)
+            }}GB</strong
+          >
         </div>
         <div class="metrics-detail-row">
           <span>{{ t('dockerInstances') }}</span>

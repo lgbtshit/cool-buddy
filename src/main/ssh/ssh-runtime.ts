@@ -2,11 +2,12 @@ import type { BrowserWindow } from 'electron'
 import { Client } from 'ssh2'
 import type { ClientChannel, SFTPWrapper } from 'ssh2'
 import { getMainWindow } from '../state/main-window'
-import type { SshStatusPayload } from '../shared/types'
+import type { SshLogStatusPayload, SshStatusPayload } from '../shared/types'
 
 let sshClient: Client | null = null
 let sshStream: ClientChannel | null = null
 let sftp: SFTPWrapper | null = null
+let sshLogStream: ClientChannel | null = null
 
 export function sendSshStatus(window: BrowserWindow, payload: SshStatusPayload): void {
   window.webContents.send('ssh:status', payload)
@@ -19,6 +20,24 @@ export function broadcastSshStatus(payload: SshStatusPayload): void {
   }
 
   sendSshStatus(mainWindow, payload)
+}
+
+export function broadcastSshLogData(chunk: string): void {
+  const mainWindow = getMainWindow()
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return
+  }
+
+  mainWindow.webContents.send('ssh:log-data', chunk)
+}
+
+export function broadcastSshLogStatus(payload: SshLogStatusPayload): void {
+  const mainWindow = getMainWindow()
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return
+  }
+
+  mainWindow.webContents.send('ssh:log-status', payload)
 }
 
 export function setSshClient(client: Client | null): void {
@@ -37,6 +56,10 @@ export function setSftpClient(client: SFTPWrapper | null): void {
   sftp = client
 }
 
+export function setSshLogStream(stream: ClientChannel | null): void {
+  sshLogStream = stream
+}
+
 export function ensureSftp(): SFTPWrapper {
   if (!sftp) {
     throw new Error('SFTP session is not ready.')
@@ -49,6 +72,18 @@ export function ensureSshClient(): Client {
     throw new Error('SSH client is not ready.')
   }
   return sshClient
+}
+
+export function disposeSshLogTail(payload?: SshLogStatusPayload): void {
+  if (sshLogStream) {
+    sshLogStream.removeAllListeners()
+    sshLogStream.close()
+    sshLogStream = null
+  }
+
+  if (payload) {
+    broadcastSshLogStatus(payload)
+  }
 }
 
 export function sshExec(command: string): Promise<string> {
@@ -129,6 +164,12 @@ export async function measureSshLatency(): Promise<number | null> {
 }
 
 export function disposeSsh(window?: BrowserWindow): void {
+  disposeSshLogTail({
+    status: 'idle',
+    path: '',
+    message: 'Log stream stopped.'
+  })
+
   if (sshStream) {
     sshStream.removeAllListeners()
     sshStream.close()

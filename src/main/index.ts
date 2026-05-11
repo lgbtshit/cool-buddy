@@ -3,6 +3,8 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { closeDatabase, getDatabase } from './data/session-store'
 import { registerSessionIpc } from './ipc/register-session-ipc'
 import { registerSshIpc } from './ipc/register-ssh-ipc'
+import { destroyAppTray, createAppTray } from './tray/create-app-tray'
+import { setIsQuitting } from './state/app-lifecycle'
 import { createMainWindow } from './windows/create-main-window'
 
 app
@@ -18,9 +20,15 @@ app
     registerSessionIpc()
     registerSshIpc()
     createMainWindow()
+    createAppTray()
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow()
+        return
+      }
+
+      BrowserWindow.getAllWindows()[0]?.show()
     })
   })
   .catch((error) => {
@@ -34,5 +42,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  setIsQuitting(true)
+  destroyAppTray()
   closeDatabase()
 })

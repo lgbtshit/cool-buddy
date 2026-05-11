@@ -12,6 +12,7 @@ import {
   HardDrive,
   X
 } from 'lucide-vue-next'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAppCopy } from '../../composables/use-app-copy'
 import { useSshConsoleStore } from '../../stores/ssh-console'
@@ -26,25 +27,73 @@ const iconMap = {
   database: Database,
   hardDrive: HardDrive
 }
+const tabStripRef = ref<HTMLElement | null>(null)
+const tabMenuRef = ref<HTMLElement | null>(null)
+const tabMenuStyle = ref({ left: '0px', top: '0px' })
+const MENU_GAP_PX = 6
+const VIEWPORT_PADDING_PX = 8
 
 const handleConnect = async (session: SessionItem) => {
   await store.connectToSession(session)
 }
 
+const updateTabMenuPosition = () => {
+  if (!tabMenu.value || !tabStripRef.value || !tabMenuRef.value) return
+
+  const stripRect = tabStripRef.value.getBoundingClientRect()
+  const menuRect = tabMenuRef.value.getBoundingClientRect()
+  const maxLeft = Math.max(
+    VIEWPORT_PADDING_PX,
+    window.innerWidth - stripRect.left - menuRect.width - VIEWPORT_PADDING_PX
+  )
+  const maxTop = Math.max(
+    VIEWPORT_PADDING_PX,
+    window.innerHeight - stripRect.top - menuRect.height - VIEWPORT_PADDING_PX
+  )
+
+  let left = Math.min(tabMenu.value.x, maxLeft)
+  let top = Math.min(tabMenu.value.y, maxTop)
+
+  if (top < VIEWPORT_PADDING_PX) {
+    top = Math.max(VIEWPORT_PADDING_PX, tabMenu.value.y - menuRect.height - MENU_GAP_PX)
+  }
+
+  tabMenuStyle.value = {
+    left: `${Math.max(VIEWPORT_PADDING_PX, left)}px`,
+    top: `${Math.max(VIEWPORT_PADDING_PX, top)}px`
+  }
+}
+
 const handleContextMenu = (event: MouseEvent, sessionId: string) => {
   event.preventDefault()
   event.stopPropagation()
+
+  const stripRect = tabStripRef.value?.getBoundingClientRect()
   store.openTabMenuAt({
     sessionId,
-    x: event.clientX,
-    y: event.clientY
+    x: stripRect ? event.clientX - stripRect.left : event.clientX,
+    y: stripRect ? event.clientY - stripRect.top + MENU_GAP_PX : event.clientY
   })
+  void nextTick(updateTabMenuPosition)
 }
+
+watch(tabMenu, (value) => {
+  if (!value) return
+  void nextTick(updateTabMenuPosition)
+})
+
+onMounted(() => {
+  window.addEventListener('resize', updateTabMenuPosition)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateTabMenuPosition)
+})
 </script>
 
 <template>
   <header class="topbar">
-    <div class="tab-strip">
+    <div ref="tabStripRef" class="tab-strip">
       <button
         v-for="session in openTabs"
         :key="session.id"
@@ -61,12 +110,13 @@ const handleContextMenu = (event: MouseEvent, sessionId: string) => {
 
       <div
         v-if="tabMenu"
+        ref="tabMenuRef"
         class="tab-context-menu"
-        :style="{ left: `${tabMenu.x}px`, top: `${tabMenu.y}px` }"
+        :style="tabMenuStyle"
         @click.stop
       >
         <button class="tab-context-item" @click="store.removeTab(tabMenu.sessionId)">
-          <MoreHorizontal :size="14" />
+          <MoreHorizontal :size="10" />
           <span>{{ t('removeTab') }}</span>
         </button>
       </div>

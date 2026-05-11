@@ -3,17 +3,23 @@ import { Client } from 'ssh2'
 import type { ConnectConfig } from 'ssh2'
 import { getMainWindow } from '../state/main-window'
 import {
+  broadcastSshLogData,
+  broadcastSshLogStatus,
   broadcastSshStatus,
+  ensureSshClient,
+  disposeSshLogTail,
   disposeSsh,
   getSshStream,
   measureSshLatency,
   setSftpClient,
   setSshClient,
+  setSshLogStream,
   setSshStream,
   sshExecStreaming
 } from '../ssh/ssh-runtime'
 import {
   createRemoteDirectory,
+  completeRemotePath,
   deleteRemoteEntry,
   listRemoteDirectory,
   readRemoteFile,
@@ -23,13 +29,17 @@ import {
 } from '../ssh/remote-files'
 import { readRemoteApps } from '../ssh/remote-apps'
 import { readLiveSystemMetrics, readSystemMetrics } from '../ssh/system-metrics'
-import type { SshCommandBatchPayload, SshConnectPayload } from '../shared/types'
+import type { SshCommandBatchPayload, SshConnectPayload, SshLogTailPayload } from '../shared/types'
 
 let sshHandlersRegistered = false
 
 function createCommandBatch(content: string): string {
   const delimiter = `COOL_BUDDY_BATCH_${Date.now().toString(36)}`
   return `sh -se <<'${delimiter}'\n${content}\n${delimiter}`
+}
+
+function quoteShellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`
 }
 
 export function registerSshIpc(): void {
@@ -158,7 +168,88 @@ export function registerSshIpc(): void {
     return { ok: true as const }
   })
 
+  ipcMain.handle('ssh:start-log-tail', async (_event, payload: SshLogTailPayload) => {
+    const path = payload.path.trim()
+    const lineCount = Math.max(1, Math.min(500, Math.trunc(payload.lineCount || 50)))
+    if (!path) {
+      throw new Error('Log path is required.')
+    }
+
+    disposeSshLogTail()
+
+    return await new Promise<{ ok: true }>((resolve, reject) => {
+      const command = createCommandBatch(
+        `
+if [ ! -e ${quoteShellArg(path)} ]; then
+  echo "Log file does not exist." >&2
+  exit 2
+fi
+
+if [ ! -f ${quoteShellArg(path)} ]; then
+  echo "Log path is not a file." >&2
+  exit 3
+fi
+
+exec tail -n ${lineCount} -f -- ${quoteShellArg(path)}
+      `.trim()
+      )
+
+      ensureSshClient().exec(command, (error, stream) => {
+        if (error) {
+          broadcastSshLogStatus({
+            status: 'error',
+            path,
+            message: error.message
+          })
+          reject(error)
+          return
+        }
+
+        setSshLogStream(stream)
+        broadcastSshLogStatus({
+          status: 'running',
+          path,
+          message: `Streaming ${path}`
+        })
+
+        stream.on('data', (chunk: Buffer) => {
+          broadcastSshLogData(chunk.toString('utf8'))
+        })
+
+        stream.stderr.on('data', (chunk: Buffer) => {
+          const message = chunk.toString('utf8')
+          broadcastSshLogStatus({
+            status: 'error',
+            path,
+            message
+          })
+        })
+
+        stream.on('close', () => {
+          setSshLogStream(null)
+          broadcastSshLogStatus({
+            status: 'idle',
+            path,
+            message: `Stopped streaming ${path}`
+          })
+        })
+
+        resolve({ ok: true as const })
+      })
+    })
+  })
+
+  ipcMain.handle('ssh:stop-log-tail', async () => {
+    disposeSshLogTail({
+      status: 'idle',
+      path: '',
+      message: 'Log stream stopped.'
+    })
+    return { ok: true as const }
+  })
+
   ipcMain.handle('ssh:list-remote', async (_event, payload) => listRemoteDirectory(payload))
+  ipcMain.handle('ssh:complete-remote-path', async (_event, payload) => completeRemotePath(payload))
   ipcMain.handle('ssh:read-remote-file', async (_event, payload) => readRemoteFile(payload))
   ipcMain.handle('ssh:upload-remote-file', async (_event, payload) => uploadRemoteFile(payload))
   ipcMain.handle('ssh:create-remote-directory', async (_event, payload) =>

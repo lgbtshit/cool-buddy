@@ -4,6 +4,8 @@ import { ensureSftp } from './ssh-runtime'
 import type {
   RemoteDeletePayload,
   RemoteEntry,
+  RemotePathCompletionPayload,
+  RemotePathCompletionResult,
   RemoteListPayload,
   RemoteMkdirPayload,
   RemoteReadPayload,
@@ -23,6 +25,25 @@ export function joinRemotePath(parentPath: string, childName: string): string {
     return posix.join('/', childName)
   }
   return posix.join(normalizedParent, childName)
+}
+
+function getLongestCommonPrefix(values: string[]): string {
+  if (!values.length) return ''
+  let prefix = values[0]
+
+  for (const value of values.slice(1)) {
+    let index = 0
+    const maxLength = Math.min(prefix.length, value.length)
+    while (index < maxLength && prefix[index] === value[index]) {
+      index += 1
+    }
+    prefix = prefix.slice(0, index)
+    if (!prefix) {
+      break
+    }
+  }
+
+  return prefix
 }
 
 export function getEntryKind(entry: FileEntry): RemoteEntry['kind'] {
@@ -194,6 +215,76 @@ export async function listRemoteDirectory(payload?: RemoteListPayload) {
   return {
     path: resolvedPath,
     entries
+  }
+}
+
+export async function completeRemotePath(
+  payload: RemotePathCompletionPayload
+): Promise<RemotePathCompletionResult> {
+  const rawInput = payload.input.replace(/\\/g, '/')
+  const basePath = normalizeRemotePath(payload.basePath ?? '.')
+  const endsWithSlash = rawInput.endsWith('/')
+
+  let displayPrefix = ''
+  let partialName = ''
+  let searchDirectoryInput = basePath
+
+  if (!rawInput) {
+    displayPrefix = ''
+    partialName = ''
+    searchDirectoryInput = basePath
+  } else if (endsWithSlash) {
+    displayPrefix = rawInput
+    partialName = ''
+    searchDirectoryInput = rawInput.startsWith('/')
+      ? normalizeRemotePath(rawInput)
+      : joinRemotePath(basePath, rawInput)
+  } else {
+    const lastSlashIndex = rawInput.lastIndexOf('/')
+    if (lastSlashIndex >= 0) {
+      displayPrefix = rawInput.slice(0, lastSlashIndex + 1)
+      partialName = rawInput.slice(lastSlashIndex + 1)
+      const parentInput = rawInput.slice(0, lastSlashIndex) || (rawInput.startsWith('/') ? '/' : '.')
+      searchDirectoryInput = rawInput.startsWith('/')
+        ? normalizeRemotePath(parentInput)
+        : joinRemotePath(basePath, parentInput)
+    } else {
+      displayPrefix = ''
+      partialName = rawInput
+      searchDirectoryInput = basePath
+    }
+  }
+
+  const searchDirectory = await sftpRealpath(searchDirectoryInput).catch(() => searchDirectoryInput)
+  const rows = await sftpReaddir(searchDirectory)
+
+  const matches = rows
+    .filter((entry) => entry.filename !== '.' && entry.filename !== '..')
+    .map((entry) => ({
+      name: entry.filename,
+      kind: getEntryKind(entry)
+    }))
+    .filter((entry) => entry.name.startsWith(partialName))
+    .sort((left, right) => {
+      if (left.kind !== right.kind) {
+        return left.kind === 'directory' ? -1 : 1
+      }
+      return left.name.localeCompare(right.name)
+    })
+    .map((entry) => `${displayPrefix}${entry.name}${entry.kind === 'directory' ? '/' : ''}`)
+
+  if (!matches.length) {
+    return {
+      value: rawInput,
+      matches: []
+    }
+  }
+
+  const nextValue = matches.length === 1 ? matches[0] : getLongestCommonPrefix(matches)
+
+  return {
+    value: nextValue.length >= rawInput.length ? nextValue : rawInput,
+    matches
   }
 }
 

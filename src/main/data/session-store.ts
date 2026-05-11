@@ -114,6 +114,22 @@ export function createSession(payload: CreateSessionPayload): SessionItem {
   return mapSession(record)
 }
 
+export function deleteSession(sessionId: string): void {
+  const trimmedId = sessionId.trim()
+  if (!trimmedId) {
+    throw new Error('Session id is required.')
+  }
+
+  getDatabase()
+    .prepare(
+      `
+        DELETE FROM sessions
+        WHERE id = ?
+      `
+    )
+    .run(trimmedId)
+}
+
 export function closeDatabase(): void {
   database?.close()
   database = null

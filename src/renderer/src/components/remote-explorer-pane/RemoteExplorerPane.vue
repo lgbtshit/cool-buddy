@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  ArrowUp,
   Eye,
   EyeOff,
   FolderPlus,
@@ -11,7 +12,7 @@ import {
   FolderOpen
 } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useAppCopy } from '../../composables/use-app-copy'
 import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue'
 import { useSshConsoleStore } from '../../stores/ssh-console'
@@ -36,10 +37,19 @@ const selectedEntryPath = ref('')
 const editingEntryPath = ref('')
 const editingName = ref('')
 const renamingEntryPath = ref('')
+const renameInput = ref<HTMLInputElement | null>(null)
+const pathCompletionMatches = ref<string[]>([])
+const pathCompletionIndex = ref(-1)
+const pathCompletionQuery = ref('')
 
 const previewLines = computed(() => {
   if (!remotePreview.value) return []
   return remotePreview.value.content.split(/\r?\n/).slice(0, 10)
+})
+
+const canGoToParentDirectory = computed(() => {
+  const currentPath = remoteDirectory.value?.path?.trim()
+  return Boolean(currentPath && currentPath !== '/')
 })
 
 const visibleEntries = computed(() => {
@@ -58,9 +68,20 @@ watch(
     selectedEntryPath.value = ''
     editingEntryPath.value = ''
     editingName.value = ''
+    resetPathCompletionState()
   },
   { immediate: true }
 )
+
+function resetPathCompletionState() {
+  pathCompletionMatches.value = []
+  pathCompletionIndex.value = -1
+  pathCompletionQuery.value = ''
+}
+
+function isSameMatchList(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
 
 async function openEntry(entry: RemoteEntry) {
   selectedEntryPath.value = entry.path
@@ -100,6 +121,15 @@ async function handleRename(entry: RemoteEntry) {
   selectedEntryPath.value = entry.path
   editingEntryPath.value = entry.path
   editingName.value = entry.name
+  await nextTick()
+  const input = renameInput.value
+  if (!input) return
+
+  input.focus()
+  const extensionIndex =
+    entry.kind === 'file' && entry.name.includes('.') ? entry.name.lastIndexOf('.') : -1
+  const selectionEnd = extensionIndex > 0 ? extensionIndex : entry.name.length
+  input.setSelectionRange(0, selectionEnd)
 }
 
 async function handleDelete(entry: RemoteEntry) {
@@ -114,6 +144,53 @@ async function submitPath() {
   await store.loadRemoteDirectory(nextPath)
 }
 
+async function handlePathTabComplete() {
+  if (!isConnected.value || explorerBusy.value || explorerLoading.value) {
+    return
+  }
+
+  const currentValue = pathInput.value
+  const basePath = remoteDirectory.value?.path?.trim() || '.'
+  const result = await window.api.ssh.completeRemotePath({
+    input: currentValue,
+    basePath
+  })
+
+  if (!result.matches.length) {
+    resetPathCompletionState()
+    return
+  }
+
+  const canCycle =
+    pathCompletionQuery.value === currentValue &&
+    isSameMatchList(pathCompletionMatches.value, result.matches) &&
+    result.matches.length > 1
+
+  if (canCycle) {
+    const nextIndex =
+      (pathCompletionIndex.value + 1 + result.matches.length) % result.matches.length
+    pathCompletionIndex.value = nextIndex
+    pathCompletionQuery.value = result.matches[nextIndex]
+    pathInput.value = result.matches[nextIndex]
+    return
+  }
+
+  pathCompletionMatches.value = result.matches
+  pathCompletionIndex.value = result.matches.indexOf(result.value)
+  pathCompletionQuery.value = result.value
+  pathInput.value = result.value
+}
+
+async function goToParentDirectory() {
+  const currentPath = remoteDirectory.value?.path?.trim()
+  if (!currentPath || currentPath === '/') return
+
+  const normalizedPath = currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath
+  const lastSlashIndex = normalizedPath.lastIndexOf('/')
+  const parentPath = lastSlashIndex <= 0 ? '/' : normalizedPath.slice(0, lastSlashIndex)
+  await store.loadRemoteDirectory(parentPath)
+}
+
 function handleEntryClick(entry: RemoteEntry, event: MouseEvent) {
   if (event.detail > 1) return
 
@@ -122,13 +199,20 @@ function handleEntryClick(entry: RemoteEntry, event: MouseEvent) {
     editingName.value = ''
   }
 
-  if (selectedEntryPath.value === entry.path) {
-    editingEntryPath.value = entry.path
-    editingName.value = entry.name
+  selectedEntryPath.value = entry.path
+}
+
+async function handleEntryNameClick(entry: RemoteEntry) {
+  if (editingEntryPath.value === entry.path || renamingEntryPath.value === entry.path) {
     return
   }
 
-  selectedEntryPath.value = entry.path
+  if (selectedEntryPath.value !== entry.path) {
+    selectedEntryPath.value = entry.path
+    return
+  }
+
+  await handleRename(entry)
 }
 
 function cancelRename() {
@@ -232,7 +316,17 @@ async function submitRename(entry: RemoteEntry) {
             :disabled="explorerLoading || explorerBusy"
             :placeholder="t('remotePathPlaceholder')"
             type="text"
+            @input="resetPathCompletionState()"
+            @keydown.tab.prevent="void handlePathTabComplete()"
           />
+          <button
+            class="mini-icon-btn remote-path-up-btn"
+            :disabled="!canGoToParentDirectory || explorerLoading || explorerBusy"
+            type="button"
+            @click="void goToParentDirectory()"
+          >
+            <ArrowUp :size="14" />
+          </button>
         </form>
       </div>
 
@@ -254,6 +348,7 @@ async function submitRename(entry: RemoteEntry) {
               <component :is="entry.kind === 'directory' ? FolderOpen : FileText" :size="15" />
               <input
                 v-if="editingEntryPath === entry.path"
+                ref="renameInput"
                 v-model="editingName"
                 class="remote-entry-rename-input"
                 type="text"
@@ -263,7 +358,16 @@ async function submitRename(entry: RemoteEntry) {
                 @keydown.enter.prevent="void submitRename(entry)"
                 @keydown.esc.prevent="cancelRename()"
               />
-              <span v-else class="remote-entry-name">{{ entry.name }}</span>
+              <button
+                v-else
+                class="remote-entry-name"
+                :class="{ 'is-selected': selectedEntryPath === entry.path }"
+                type="button"
+                @click.stop="void handleEntryNameClick(entry)"
+                @dblclick.stop="void openEntry(entry)"
+              >
+                {{ entry.name }}
+              </button>
             </div>
             <div class="remote-entry-actions">
               <button

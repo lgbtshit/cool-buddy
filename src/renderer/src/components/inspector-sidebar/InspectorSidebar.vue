@@ -11,6 +11,11 @@ const store = useSshConsoleStore()
 const { isConnected, metricsLoading, systemMetrics } = storeToRefs(store)
 const { t } = useAppCopy()
 const metricsDetailOpen = ref(false)
+
+function formatMemoryGb(valueMb: number): string {
+  const valueGb = valueMb / 1024
+  return valueGb >= 10 ? valueGb.toFixed(1) : valueGb.toFixed(2)
+}
 </script>
 
 <template>
@@ -50,7 +55,11 @@ const metricsDetailOpen = ref(false)
         </div>
         <div class="metric-box">
           <span>{{ t('memory') }}</span>
-          <strong>{{ systemMetrics.memoryUsedMb }}/{{ systemMetrics.memoryTotalMb }}MB</strong>
+          <strong>
+            {{ formatMemoryGb(systemMetrics.memoryUsedMb) }}/{{
+              formatMemoryGb(systemMetrics.memoryTotalMb)
+            }}GB
+          </strong>
         </div>
 
         <div class="metric-wide">

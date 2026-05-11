@@ -63,6 +63,8 @@ export const messages = {
     checkLogs: '\u68c0\u67e5\u65e5\u5fd7',
     auditPermissions: '\u5ba1\u8ba1\u6743\u9650',
     keyBindings: '\u5feb\u6377\u952e',
+    keyBindingsHint:
+      '\u4e0b\u9762\u662f\u5f53\u524d\u7ec8\u7aef\u5de5\u4f5c\u53f0\u652f\u6301\u7684\u5e38\u7528\u5feb\u6377\u952e\u793a\u4f8b\u3002',
     quickActions: '\u5feb\u6377\u64cd\u4f5c',
     terminalSettings: '\u7ec8\u7aef\u8bbe\u7f6e',
     connected: '\u5df2\u8fde\u63a5',
@@ -84,6 +86,9 @@ export const messages = {
     sessionConnecting: '\u8fde\u63a5\u4e2d',
     sessionError: '\u8fde\u63a5\u5931\u8d25',
     removeTab: '\u5220\u9664\u6807\u7b7e',
+    deleteSessionTitle: '\u5220\u9664\u4f1a\u8bdd',
+    deleteSessionAction: '\u5220\u9664\u4f1a\u8bdd',
+    deleteSessionMenu: '\u5220\u9664\u4f1a\u8bdd',
     explorerDisconnectedTitle: '\u672a\u8fde\u63a5\u8fdc\u7a0b\u4f1a\u8bdd',
     explorerDisconnectedHint:
       '\u5148\u8fde\u63a5\u5f53\u524d\u4f1a\u8bdd\uff0c\u8fd9\u91cc\u624d\u4f1a\u663e\u793a\u8fdc\u7a0b\u6587\u4ef6\u4e0e\u6587\u4ef6\u5939\u3002',
@@ -99,7 +104,25 @@ export const messages = {
     deleteConfirm: '\u786e\u8ba4\u5220\u9664',
     terminalTitle: '\u7ec8\u7aef',
     logTitle: '\u5b9e\u65f6\u65e5\u5fd7',
-    autoPauseOff: '\u81ea\u52a8\u6682\u505c\uff1a\u5173'
+    logPathPlaceholder: '\u8f93\u5165\u8981 tail -f \u7684\u65e5\u5fd7\u6587\u4ef6\u8def\u5f84',
+    logSettings: '\u65e5\u5fd7\u8bbe\u7f6e',
+    logLineCount: '\u521d\u59cb/\u6eda\u52a8\u6761\u6570',
+    logLineCountHint:
+      '\u542f\u52a8\u65f6\u9ed8\u8ba4\u62c9\u53d6\u6700\u65b0 N \u6761\uff0c\u8fd0\u884c\u4e2d\u4ec5\u4fdd\u7559\u6700\u65b0 N \u6761\u3002',
+    logSaveSettings: '\u4fdd\u5b58\u8bbe\u7f6e',
+    logStart: '\u542f\u52a8',
+    logStop: '\u5173\u95ed',
+    logRunning: '\u8fd0\u884c\u4e2d',
+    logStopped: '\u672a\u542f\u52a8',
+    logEmptyTitle: '\u8fd8\u6ca1\u6709\u542f\u52a8\u65e5\u5fd7\u6d41',
+    logEmptyHint:
+      '\u5148\u8bbe\u7f6e\u65e5\u5fd7\u6587\u4ef6\u8def\u5f84\uff0c\u7136\u540e\u70b9\u51fb\u542f\u52a8\u5f00\u59cb tail -f\u3002',
+    logDisconnectedTitle: '\u65e5\u5fd7\u9762\u677f\u672a\u8fde\u63a5',
+    logDisconnectedHint:
+      '\u5148\u8fde\u63a5\u5230\u8fdc\u7a0b\u4f1a\u8bdd\uff0c\u7136\u540e\u518d\u542f\u52a8\u5b9e\u65f6\u65e5\u5fd7\u3002',
+    logInvalidFileTitle: '\u65e5\u5fd7\u8def\u5f84\u65e0\u6548',
+    logInvalidFileMessage:
+      '\u8bf7\u8f93\u5165\u4e00\u4e2a\u771f\u5b9e\u5b58\u5728\u7684\u65e5\u5fd7\u6587\u4ef6\u8def\u5f84\uff0c\u4e0d\u80fd\u662f\u76ee\u5f55\u6216\u5176\u4ed6\u7c7b\u578b\u3002'
   },
   'en-US': {
     pasteConfirmTitle: 'Detected multi-line paste',
@@ -157,6 +180,8 @@ export const messages = {
     checkLogs: 'Check Logs',
     auditPermissions: 'Audit Permissions',
     keyBindings: 'Key Bindings',
+    keyBindingsHint:
+      'Examples of the keyboard shortcuts currently supported in this terminal workspace.',
     quickActions: 'Quick Actions',
     terminalSettings: 'Terminal Settings',
     connected: 'Connected',
@@ -176,6 +201,9 @@ export const messages = {
     sessionConnecting: 'Connecting',
     sessionError: 'Connection Error',
     removeTab: 'Remove Tab',
+    deleteSessionTitle: 'Delete Session',
+    deleteSessionAction: 'Delete Session',
+    deleteSessionMenu: 'Delete Session',
     explorerDisconnectedTitle: 'Remote session is not connected',
     explorerDisconnectedHint:
       'Connect the current session first to browse real remote files and folders here.',
@@ -190,7 +218,23 @@ export const messages = {
     deleteConfirm: 'Delete',
     terminalTitle: 'Terminal',
     logTitle: 'Live Logs',
-    autoPauseOff: 'AUTO-PAUSE: OFF'
+    logPathPlaceholder: 'Enter the log file path to stream with tail -f',
+    logSettings: 'Log Settings',
+    logLineCount: 'Initial and rolling lines',
+    logLineCountHint:
+      'When streaming starts, the newest N lines are loaded first, and only the newest N lines are kept while following the file.',
+    logSaveSettings: 'Save Settings',
+    logStart: 'Start',
+    logStop: 'Stop',
+    logRunning: 'Running',
+    logStopped: 'Stopped',
+    logEmptyTitle: 'Log streaming is currently off',
+    logEmptyHint: 'Set a log file path, then click Start to begin tailing this file.',
+    logDisconnectedTitle: 'Log streaming is unavailable',
+    logDisconnectedHint: 'Connect to a remote session first, then start the live log stream.',
+    logInvalidFileTitle: 'Invalid log path',
+    logInvalidFileMessage:
+      'Please enter a real log file path. Directories and non-file targets cannot be streamed.'
   }
 } as const
 

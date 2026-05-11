@@ -6,6 +6,14 @@
   --bg-panel-4: #353438;
   --text: #e4e1e6;
   --outline: #3a494a;
+  --field-border: rgba(58, 73, 74, 0.4);
+  --field-border-strong: rgba(99, 247, 255, 0.52);
+  --field-bg: rgba(53, 52, 56, 0.66);
+  --field-bg-elevated: rgba(14, 14, 17, 0.78);
+  --field-shadow-focus:
+    0 0 0 1px rgba(99, 247, 255, 0.18),
+    0 10px 24px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
   --cyan: #00f5ff;
   --cyan-soft: #63f7ff;
   --green: #69f6b9;
@@ -63,6 +71,22 @@ select {
 button,
 select {
   color: inherit;
+}
+
+input,
+textarea,
+select {
+  outline: none;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(185, 202, 202, 0.42);
 }
 
 #app {
@@ -137,6 +161,7 @@ select {
 }
 
 .session-pane {
+  position: relative;
   overflow: auto;
   border-bottom: 1px solid rgba(58, 73, 74, 0.35);
 }
@@ -232,8 +257,8 @@ select {
 .modal-grid input,
 .modal-grid select {
   width: 100%;
-  border: 1px solid rgba(58, 73, 74, 0.4);
-  background: rgba(53, 52, 56, 0.66);
+  border: 1px solid var(--field-border);
+  background: var(--field-bg);
   color: var(--text);
   outline: none;
 }
@@ -245,13 +270,28 @@ select {
   font-size: 13px;
 }
 
-.search-box input:focus,
-.form-grid input:focus,
-.prompt-box textarea:focus,
-.modal-grid input:focus,
-.modal-grid select:focus {
-  border-color: rgba(99, 247, 255, 0.65);
-  box-shadow: 0 0 0 1px rgba(99, 247, 255, 0.22);
+.search-box input:focus-visible,
+.form-grid input:focus-visible,
+.prompt-box textarea:focus-visible,
+.modal-grid input:focus-visible,
+.modal-grid select:focus-visible,
+.remote-path-input:focus-visible,
+.remote-entry-rename-input:focus-visible,
+.log-path-input:focus-visible {
+  border-color: var(--field-border-strong);
+  background: var(--field-bg-elevated);
+  box-shadow: var(--field-shadow-focus);
+}
+
+.search-box input:hover,
+.form-grid input:hover,
+.prompt-box textarea:hover,
+.modal-grid input:hover,
+.modal-grid select:hover,
+.remote-path-input:hover,
+.remote-entry-rename-input:hover,
+.log-path-input:hover {
+  border-color: rgba(99, 247, 255, 0.24);
 }
 
 .search-icon {
@@ -388,17 +428,22 @@ select {
 
 .remote-path-form {
   display: flex;
+  gap: 8px;
 }
 
 .remote-path-input {
-  width: 100%;
+  flex: 1;
   height: 36px;
   padding: 0 12px;
-  border: 1px solid rgba(58, 73, 74, 0.35);
+  border: 1px solid var(--field-border);
   border-radius: 4px;
   background: rgba(14, 14, 17, 0.72);
   color: rgba(228, 225, 230, 0.88);
   font-size: 12px;
+}
+
+.remote-path-up-btn {
+  flex: 0 0 auto;
 }
 
 .remote-explorer-error {
@@ -449,10 +494,22 @@ select {
 }
 
 .remote-entry-name {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.remote-entry-name.is-selected:hover {
+  color: var(--cyan-soft);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .remote-entry-rename-input {
@@ -460,9 +517,9 @@ select {
   min-width: 0;
   height: 26px;
   padding: 0 8px;
-  border: 1px solid rgba(99, 247, 255, 0.45);
+  border: 1px solid rgba(99, 247, 255, 0.32);
   border-radius: 4px;
-  background: rgba(14, 14, 17, 0.9);
+  background: rgba(14, 14, 17, 0.82);
   color: rgba(228, 225, 230, 0.92);
   font-size: 12px;
 }
@@ -500,13 +557,22 @@ select {
 
 .mini-icon-btn,
 .mini-text-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   background: transparent;
   color: rgba(185, 202, 202, 0.82);
   cursor: pointer;
 }
 
+.mini-icon-btn {
+  width: 24px;
+  height: 24px;
+}
+
 .mini-text-btn {
+  gap: 6px;
   font-size: 11px;
   text-transform: none;
 }
@@ -648,6 +714,8 @@ select {
 
 .topbar {
   display: flex;
+  position: relative;
+  z-index: 20;
   align-items: center;
   gap: 12px;
   padding: 0 10px 0 8px;
@@ -689,7 +757,7 @@ select {
 }
 
 .tab-context-menu {
-  position: fixed;
+  position: absolute;
   z-index: 40;
   min-width: 132px;
   padding: 6px;
@@ -702,14 +770,16 @@ select {
 .tab-context-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  min-height: 34px;
-  padding: 0 10px;
+  min-height: 24px;
+  padding: 0 8px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: rgba(228, 225, 230, 0.92);
+  font-size: 9px;
+  line-height: 1;
   text-align: left;
   cursor: pointer;
 }
@@ -850,25 +920,79 @@ select {
 .pause-pill {
   padding: 3px 8px;
   border-radius: 4px;
-  background: #93000a;
-  color: #ffdad6;
+  background: rgba(53, 52, 56, 0.8);
+  color: rgba(228, 225, 230, 0.78);
   font-size: 10px;
 }
 
+.pause-pill.active {
+  background: rgba(16, 185, 129, 0.16);
+  color: #8df5c8;
+}
+
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 0;
+}
+
+.log-path-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 4px;
+  background: rgba(14, 14, 17, 0.72);
+  color: rgba(228, 225, 230, 0.88);
+  font-size: 12px;
+}
+
 .log-body {
-  padding: 14px;
-  overflow: auto;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 14px 14px;
+  overflow: hidden;
   font-size: 12px;
   line-height: 1.65;
 }
 
-.log-muted {
-  color: rgba(185, 202, 202, 0.28);
+.log-line-limit {
+  flex: 0 0 auto;
+  min-width: 38px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(58, 73, 74, 0.28);
+  border-radius: 4px;
+  background: rgba(24, 29, 32, 0.78);
+  color: rgba(185, 202, 202, 0.82);
+  font-size: 11px;
+  line-height: 32px;
+  text-align: center;
 }
 
-.log-highlight {
-  margin-top: 10px;
-  color: var(--green);
+.log-error {
+  margin-bottom: 12px;
+}
+
+.log-stream {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(58, 73, 74, 0.3);
+  border-radius: 4px;
+  background: rgba(14, 14, 17, 0.88);
+  color: rgba(228, 225, 230, 0.88);
+  font-family: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .log-waiting {
@@ -1276,6 +1400,69 @@ select {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
+}
+
+.keybindings-modal {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.log-settings-modal {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.keybindings-list {
+  display: grid;
+  gap: 12px;
+}
+
+.keybinding-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid rgba(58, 73, 74, 0.35);
+  border-radius: 6px;
+  background: rgba(14, 14, 17, 0.72);
+}
+
+.keybinding-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.keybinding-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(228, 225, 230, 0.92);
+}
+
+.keybinding-copy p {
+  color: rgba(185, 202, 202, 0.78);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.keybinding-chord {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.keybinding-chord kbd {
+  min-width: 36px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(99, 247, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(24, 29, 32, 0.92);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  color: var(--cyan-soft);
+  font-size: 12px;
+  line-height: 28px;
+  text-align: center;
 }
 
 @keyframes pulse {

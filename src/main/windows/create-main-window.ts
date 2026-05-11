@@ -2,6 +2,7 @@ import { shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../../resources/icon.png?asset'
+import { getIsQuitting } from '../state/app-lifecycle'
 import { setMainWindow } from '../state/main-window'
 import { disposeSsh } from '../ssh/ssh-runtime'
 
@@ -13,7 +14,7 @@ export function createMainWindow(): void {
     minHeight: 832,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -50,6 +51,15 @@ export function createMainWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  mainWindow.on('close', (event) => {
+    if (getIsQuitting() || process.platform === 'darwin') {
+      return
+    }
+
+    event.preventDefault()
+    mainWindow.hide()
+  })
 
   mainWindow.on('closed', () => {
     setMainWindow(null)
