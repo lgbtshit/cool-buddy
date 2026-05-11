@@ -7,6 +7,7 @@ import { storeToRefs } from 'pinia'
 import { useAppCopy } from '../../composables/use-app-copy'
 import InspectorSidebar from '../../components/inspector-sidebar/InspectorSidebar.vue'
 import LogPanel from '../../components/log-panel/LogPanel.vue'
+import PasteConfirmModal from '../../components/paste-confirm-modal/PasteConfirmModal.vue'
 import SessionModal from '../../components/session-modal/SessionModal.vue'
 import SessionSidebar from '../../components/session-sidebar/SessionSidebar.vue'
 import TerminalPanel from '../../components/terminal-panel/TerminalPanel.vue'
@@ -18,6 +19,8 @@ const { activeSession, connectionLabel } = storeToRefs(store)
 const { t } = useAppCopy()
 
 const terminalPanelRef = ref<InstanceType<typeof TerminalPanel> | null>(null)
+const pasteConfirmOpen = ref(false)
+const pendingPasteContent = ref('')
 
 const terminal = new Terminal({
   cursorBlink: true,
@@ -64,9 +67,53 @@ const logLines = computed(() => [
 ])
 
 const terminalSessionName = computed(() => activeSession.value?.name ?? '--')
+const isMacOS = navigator.userAgent.toLowerCase().includes('mac')
 
 function writeSystemLine(message: string) {
   terminal.writeln(`\r\n${message}\r\n`)
+}
+
+async function copySelection() {
+  const selection = terminal.getSelection()
+  if (!selection) return
+
+  await navigator.clipboard.writeText(selection)
+}
+
+async function pasteClipboard() {
+  const clipboardText = await navigator.clipboard.readText()
+  if (!clipboardText) return
+
+  if (/[\r\n]/.test(clipboardText)) {
+    pendingPasteContent.value = clipboardText
+    pasteConfirmOpen.value = true
+    return
+  }
+
+  terminal.paste(clipboardText)
+}
+
+function closePasteConfirm() {
+  pasteConfirmOpen.value = false
+  pendingPasteContent.value = ''
+  terminal.focus()
+}
+
+function executeAllPaste() {
+  terminal.paste(pendingPasteContent.value)
+  closePasteConfirm()
+}
+
+async function executeLineByLinePaste() {
+  const content = pendingPasteContent.value
+  closePasteConfirm()
+
+  try {
+    await window.api.ssh.executeCommandBatch({ content })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Batch execution failed.'
+    writeSystemLine(message)
+  }
 }
 
 function getTerminalHost() {
@@ -91,6 +138,29 @@ onMounted(() => {
   terminal.open(terminalHost)
   fitAddon.fit()
   terminal.focus()
+  terminal.attachCustomKeyEventHandler((event) => {
+    const modifierPressed = isMacOS ? event.metaKey : event.ctrlKey
+    const key = event.key.toLowerCase()
+
+    if (!modifierPressed || !event.shiftKey) {
+      return true
+    }
+
+    if (key === 'c') {
+      event.preventDefault()
+      void copySelection()
+      return false
+    }
+
+    if (key === 'v') {
+      event.preventDefault()
+      void pasteClipboard()
+      return false
+    }
+
+    return true
+  })
+
   writeSystemLine(t('readyBanner'))
   writeSystemLine(t('terminalIdle'))
   void store.loadSessions({ connectLastSession: true })
@@ -173,5 +243,12 @@ onBeforeUnmount(() => {
     </footer>
 
     <SessionModal />
+    <PasteConfirmModal
+      :content="pendingPasteContent"
+      :open="pasteConfirmOpen"
+      @close="closePasteConfirm"
+      @execute-all="executeAllPaste"
+      @execute-line-by-line="executeLineByLinePaste"
+    />
   </main>
 </template>

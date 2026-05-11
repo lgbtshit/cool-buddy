@@ -20,6 +20,7 @@ import type {
 const TAB_STORAGE_KEY = 'cool-buddy:open-tabs'
 const LIVE_METRICS_REFRESH_INTERVAL_MS = 2000
 const FULL_METRICS_REFRESH_INTERVAL_MS = 15000
+const LATENCY_REFRESH_INTERVAL_MS = 5000
 
 function createDefaultForm(): ConnectionForm {
   return {
@@ -59,6 +60,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const searchQuery = ref('')
   const status = ref<ConnectionState>('idle')
   const statusMessage = ref<string>(messages['zh-CN'].ready)
+  const latencyMs = ref<number | null>(null)
   const aiInput = ref('')
   const sessionsLoaded = ref(false)
   const sessionModalOpen = ref(false)
@@ -76,8 +78,10 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const metricsLoading = ref(false)
   let liveMetricsRefreshTimer: number | null = null
   let fullMetricsRefreshTimer: number | null = null
+  let latencyRefreshTimer: number | null = null
   let metricsRequestPending = false
   let liveMetricsRequestPending = false
+  let latencyRequestPending = false
   const form = ref<ConnectionForm>(createDefaultForm())
   const sessionDraft = ref<SessionDraft>(createDefaultSessionDraft())
 
@@ -107,7 +111,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   })
 
   const latencyLabel = computed(() => {
-    return status.value === 'connected' ? `${t('connected')}: 24ms` : `${t('latency')}: --`
+    return `${t('latency')}: ${latencyMs.value === null ? '--' : `${latencyMs.value}ms`}`
   })
 
   const connectionLabel = computed(() => {
@@ -269,6 +273,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
     await loadSystemMetrics()
     await loadRemoteApps()
+    await loadLatency()
     startMetricsRefresh()
     await loadRemoteDirectory(result.remotePath)
   }
@@ -494,6 +499,11 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       window.clearInterval(fullMetricsRefreshTimer)
       fullMetricsRefreshTimer = null
     }
+
+    if (latencyRefreshTimer !== null) {
+      window.clearInterval(latencyRefreshTimer)
+      latencyRefreshTimer = null
+    }
   }
 
   function startMetricsRefresh() {
@@ -508,6 +518,27 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       void loadSystemMetrics({ silent: true })
       void loadRemoteApps({ silent: true })
     }, FULL_METRICS_REFRESH_INTERVAL_MS)
+
+    latencyRefreshTimer = window.setInterval(() => {
+      void loadLatency()
+    }, LATENCY_REFRESH_INTERVAL_MS)
+  }
+
+  async function loadLatency() {
+    if (!isConnected.value || latencyRequestPending) {
+      if (!isConnected.value) {
+        latencyMs.value = null
+      }
+      return
+    }
+
+    latencyRequestPending = true
+
+    try {
+      latencyMs.value = await window.api.ssh.getLatency()
+    } finally {
+      latencyRequestPending = false
+    }
   }
 
   async function loadLiveMetrics() {
@@ -599,6 +630,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       remoteApps.value = []
       remotePreview.value = null
       systemMetrics.value = null
+      latencyMs.value = null
       explorerBusy.value = false
       explorerLoading.value = false
       remoteAppsLoading.value = false
@@ -606,6 +638,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       remoteAppsError.value = ''
       metricsRequestPending = false
       liveMetricsRequestPending = false
+      latencyRequestPending = false
       if (payload.status === 'disconnected') {
         explorerError.value = ''
       }
@@ -651,7 +684,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     createRemoteDirectory,
     deleteRemoteEntry,
     latencyLabel,
+    latencyMs,
     loadLiveMetrics,
+    loadLatency,
     loadRemoteApps,
     loadSystemMetrics,
     loadSessions,

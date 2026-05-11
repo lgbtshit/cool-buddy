@@ -5,6 +5,10 @@ export type SshConnectPayload = {
   password: string
 }
 
+export type SshCommandBatchPayload = {
+  content: string
+}
+
 export type SshStatusPayload = {
   status: 'connecting' | 'connected' | 'disconnected' | 'error'
   message: string

@@ -8,6 +8,10 @@ type SshConnectPayload = {
   password: string
 }
 
+type SshCommandBatchPayload = {
+  content: string
+}
+
 type SshStatusPayload = {
   status: 'connecting' | 'connected' | 'disconnected' | 'error'
   message: string
@@ -83,6 +87,8 @@ const api = {
   ssh: {
     connect: (payload: SshConnectPayload): Promise<{ ok: true; remotePath: string }> =>
       ipcRenderer.invoke('ssh:connect', payload),
+    executeCommandBatch: (payload: SshCommandBatchPayload): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('ssh:execute-command-batch', payload),
     disconnect: () => ipcRenderer.invoke('ssh:disconnect'),
     listRemote: (payload?: { path?: string; showHidden?: boolean }): Promise<RemoteDirectory> =>
       ipcRenderer.invoke('ssh:list-remote', payload),
@@ -106,6 +112,7 @@ const api = {
       recursive?: boolean
     }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:delete-remote-entry', payload),
+    getLatency: (): Promise<number | null> => ipcRenderer.invoke('ssh:get-latency'),
     getSystemMetrics: (): Promise<SystemMetrics | null> =>
       ipcRenderer.invoke('ssh:get-system-metrics'),
     getLiveMetrics: (): Promise<LiveSystemMetrics | null> =>

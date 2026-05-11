@@ -7,6 +7,9 @@ export const localeLabels: Record<Locale, string> = {
 
 export const messages = {
   'zh-CN': {
+    pasteConfirmTitle: '检测到多行粘贴',
+    pasteExecuteAll: '整段执行',
+    pasteExecuteLineByLine: '逐行执行',
     appName: 'SSH-PRO',
     version: 'v2.4.0-stable',
     searchSessions: '\u641c\u7d22\u4f1a\u8bdd...',
@@ -99,6 +102,9 @@ export const messages = {
     autoPauseOff: '\u81ea\u52a8\u6682\u505c\uff1a\u5173'
   },
   'en-US': {
+    pasteConfirmTitle: 'Detected multi-line paste',
+    pasteExecuteAll: 'Run all',
+    pasteExecuteLineByLine: 'Run line by line',
     appName: 'SSH-PRO',
     version: 'v2.4.0-stable',
     searchSessions: 'Search sessions...',

@@ -6,9 +6,11 @@ import {
   broadcastSshStatus,
   disposeSsh,
   getSshStream,
+  measureSshLatency,
   setSftpClient,
   setSshClient,
-  setSshStream
+  setSshStream,
+  sshExecStreaming
 } from '../ssh/ssh-runtime'
 import {
   createRemoteDirectory,
@@ -21,9 +23,14 @@ import {
 } from '../ssh/remote-files'
 import { readRemoteApps } from '../ssh/remote-apps'
 import { readLiveSystemMetrics, readSystemMetrics } from '../ssh/system-metrics'
-import type { SshConnectPayload } from '../shared/types'
+import type { SshCommandBatchPayload, SshConnectPayload } from '../shared/types'
 
 let sshHandlersRegistered = false
+
+function createCommandBatch(content: string): string {
+  const delimiter = `COOL_BUDDY_BATCH_${Date.now().toString(36)}`
+  return `sh -se <<'${delimiter}'\n${content}\n${delimiter}`
+}
 
 export function registerSshIpc(): void {
   if (sshHandlersRegistered) {
@@ -115,6 +122,8 @@ export function registerSshIpc(): void {
         port: payload.port,
         username: payload.username,
         password: payload.password,
+        keepaliveInterval: 5000,
+        keepaliveCountMax: 3,
         tryKeyboard: false,
         readyTimeout: 20000
       }
@@ -136,6 +145,19 @@ export function registerSshIpc(): void {
     return { ok: true }
   })
 
+  ipcMain.handle('ssh:execute-command-batch', async (_event, payload: SshCommandBatchPayload) => {
+    const mainWindow = getMainWindow()
+    const batchCommand = createCommandBatch(payload.content)
+
+    await sshExecStreaming(batchCommand, (chunk) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ssh:data', chunk)
+      }
+    })
+
+    return { ok: true as const }
+  })
+
   ipcMain.handle('ssh:list-remote', async (_event, payload) => listRemoteDirectory(payload))
   ipcMain.handle('ssh:read-remote-file', async (_event, payload) => readRemoteFile(payload))
   ipcMain.handle('ssh:upload-remote-file', async (_event, payload) => uploadRemoteFile(payload))
@@ -146,6 +168,7 @@ export function registerSshIpc(): void {
   ipcMain.handle('ssh:delete-remote-entry', async (_event, payload) => deleteRemoteEntry(payload))
   ipcMain.handle('ssh:get-system-metrics', async () => readSystemMetrics())
   ipcMain.handle('ssh:get-live-metrics', async () => readLiveSystemMetrics())
+  ipcMain.handle('ssh:get-latency', async () => measureSshLatency())
   ipcMain.handle('ssh:get-remote-apps', async () => readRemoteApps())
 
   sshHandlersRegistered = true

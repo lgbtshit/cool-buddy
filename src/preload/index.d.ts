@@ -7,6 +7,10 @@ type SshConnectPayload = {
   password: string
 }
 
+type SshCommandBatchPayload = {
+  content: string
+}
+
 type SshStatusPayload = {
   status: 'connecting' | 'connected' | 'disconnected' | 'error'
   message: string
@@ -80,6 +84,7 @@ type AppApi = {
   }
   ssh: {
     connect: (payload: SshConnectPayload) => Promise<{ ok: true; remotePath: string }>
+    executeCommandBatch: (payload: SshCommandBatchPayload) => Promise<{ ok: true }>
     disconnect: () => Promise<{ ok: true }>
     listRemote: (payload?: { path?: string; showHidden?: boolean }) => Promise<RemoteDirectory>
     readRemoteFile: (payload: { path: string }) => Promise<{ path: string; content: string }>
@@ -97,6 +102,7 @@ type AppApi = {
       path: string
       recursive?: boolean
     }) => Promise<{ ok: true; path: string }>
+    getLatency: () => Promise<number | null>
     getSystemMetrics: () => Promise<SystemMetrics | null>
     getLiveMetrics: () => Promise<LiveSystemMetrics | null>
     getRemoteApps: () => Promise<RemoteApp[]>

@@ -82,6 +82,52 @@ export function sshExec(command: string): Promise<string> {
   })
 }
 
+export function sshExecStreaming(
+  command: string,
+  onData?: (chunk: string) => void
+): Promise<{ code: number | null }> {
+  return new Promise((resolve, reject) => {
+    ensureSshClient().exec(command, (error, stream) => {
+      if (error) {
+        reject(error)
+        return
+      }
+
+      let stderr = ''
+
+      stream.on('data', (chunk: Buffer) => {
+        onData?.(chunk.toString('utf8'))
+      })
+
+      stream.stderr.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf8')
+        stderr += text
+        onData?.(text)
+      })
+
+      stream.on('close', (code) => {
+        if (code && code !== 0) {
+          reject(new Error(stderr.trim() || `Command failed with code ${code}`))
+          return
+        }
+
+        resolve({ code })
+      })
+    })
+  })
+}
+
+export async function measureSshLatency(): Promise<number | null> {
+  const startedAt = Date.now()
+
+  try {
+    await sshExec(':')
+    return Date.now() - startedAt
+  } catch {
+    return null
+  }
+}
+
 export function disposeSsh(window?: BrowserWindow): void {
   if (sshStream) {
     sshStream.removeAllListeners()
