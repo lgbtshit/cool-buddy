@@ -35,6 +35,7 @@ const pathInput = ref('')
 const selectedEntryPath = ref('')
 const editingEntryPath = ref('')
 const editingName = ref('')
+const renamingEntryPath = ref('')
 
 const previewLines = computed(() => {
   if (!remotePreview.value) return []
@@ -131,19 +132,35 @@ function handleEntryClick(entry: RemoteEntry, event: MouseEvent) {
 }
 
 function cancelRename() {
+  if (renamingEntryPath.value) {
+    return
+  }
+
   editingEntryPath.value = ''
   editingName.value = ''
 }
 
 async function submitRename(entry: RemoteEntry) {
+  if (editingEntryPath.value !== entry.path || renamingEntryPath.value === entry.path) {
+    return
+  }
+
   const nextName = editingName.value.trim()
   if (!nextName || nextName === entry.name) {
     cancelRename()
     return
   }
 
-  await store.renameRemoteEntry(entry.path, nextName)
-  cancelRename()
+  renamingEntryPath.value = entry.path
+  editingEntryPath.value = ''
+  editingName.value = ''
+
+  try {
+    await store.renameRemoteEntry(entry.path, nextName)
+    selectedEntryPath.value = ''
+  } finally {
+    renamingEntryPath.value = ''
+  }
 }
 </script>
 

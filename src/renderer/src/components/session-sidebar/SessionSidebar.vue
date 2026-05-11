@@ -9,6 +9,7 @@ import {
   Server,
   SquareTerminal
 } from 'lucide-vue-next'
+import packageJson from '../../../../../package.json'
 import { storeToRefs } from 'pinia'
 import { useAppCopy } from '../../composables/use-app-copy'
 import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue'
@@ -20,6 +21,7 @@ const store = useSshConsoleStore()
 const { activeSessionId, filteredSessions, searchQuery, sessionGroups, sessions, sessionsLoaded } =
   storeToRefs(store)
 const { t } = useAppCopy()
+const appVersion = packageJson.version
 
 const sessionIconMap = {
   server: Server,
@@ -39,8 +41,8 @@ const handleConnect = async (session: SessionItem) => {
         <SquareTerminal :size="16" />
       </div>
       <div>
-        <h1>{{ t('appName') }}</h1>
-        <p>{{ t('version') }}</p>
+        <h1>cool-buddy</h1>
+        <p>{{ appVersion }}</p>
       </div>
     </div>
 

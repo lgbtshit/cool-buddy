@@ -93,7 +93,7 @@ onMounted(() => {
   terminal.focus()
   writeSystemLine(t('readyBanner'))
   writeSystemLine(t('terminalIdle'))
-  void store.loadSessions()
+  void store.loadSessions({ connectLastSession: true })
 
   removeTerminalInput = terminal.onData((data) => {
     window.api.ssh.input(data)

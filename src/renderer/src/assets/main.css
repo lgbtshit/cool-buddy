@@ -562,7 +562,6 @@ select {
 
 .primary-btn,
 .ghost-btn,
-.primary-split,
 .footer-actions button,
 .chip-row button,
 .send-btn,
@@ -572,8 +571,7 @@ select {
   cursor: pointer;
 }
 
-.primary-btn,
-.primary-split {
+.primary-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;

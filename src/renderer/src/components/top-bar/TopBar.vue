@@ -87,7 +87,6 @@ const handleContextMenu = (event: MouseEvent, sessionId: string) => {
         <Languages :size="15" />
         <span>{{ localeLabel }}</span>
       </button>
-      <button class="primary-split">{{ t('splitPane') }}</button>
     </div>
   </header>
 </template>

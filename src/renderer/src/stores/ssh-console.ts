@@ -40,6 +40,16 @@ function createDefaultSessionDraft(): SessionDraft {
   }
 }
 
+function sortRemoteEntries(entries: RemoteEntry[]): RemoteEntry[] {
+  return [...entries].sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === 'directory' ? -1 : 1
+    }
+
+    return left.name.localeCompare(right.name)
+  })
+}
+
 export const useSshConsoleStore = defineStore('ssh-console', () => {
   const locale = ref<Locale>('zh-CN')
   const sessions = ref<SessionItem[]>([])
@@ -180,7 +190,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     sessionModalOpen.value = false
   }
 
-  async function loadSessions() {
+  async function loadSessions(options?: { connectLastSession?: boolean }) {
     const items = await window.api.sessions.list()
     sessions.value = items
     sessionsLoaded.value = true
@@ -201,6 +211,15 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       const defaultSession = items.find((item) => item.id === defaultSessionId) ?? items[0]
       selectSession(defaultSession, { openTab: false })
       sessionModalOpen.value = false
+
+      if (options?.connectLastSession) {
+        try {
+          await connect()
+        } catch {
+          // Keep the selected session visible even if auto-connect fails.
+        }
+      }
+
       return
     }
 
@@ -260,7 +279,20 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     await window.api.ssh.disconnect()
   }
 
-  async function loadRemoteDirectory(path?: string) {
+  function patchRemoteDirectoryEntries(
+    updater: (entries: RemoteEntry[], directory: RemoteDirectory) => RemoteEntry[]
+  ) {
+    if (!remoteDirectory.value) {
+      return
+    }
+
+    remoteDirectory.value = {
+      ...remoteDirectory.value,
+      entries: sortRemoteEntries(updater(remoteDirectory.value.entries, remoteDirectory.value))
+    }
+  }
+
+  async function loadRemoteDirectory(path?: string, options?: { silent?: boolean }) {
     if (!isConnected.value) {
       remoteDirectory.value = null
       remotePreview.value = null
@@ -268,7 +300,12 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       return
     }
 
-    explorerLoading.value = true
+    const silent = options?.silent ?? false
+
+    if (!silent) {
+      explorerLoading.value = true
+    }
+
     explorerError.value = ''
     try {
       remoteDirectory.value = await window.api.ssh.listRemote({
@@ -281,7 +318,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     } catch (error) {
       explorerError.value = error instanceof Error ? error.message : 'Failed to load remote files.'
     } finally {
-      explorerLoading.value = false
+      if (!silent) {
+        explorerLoading.value = false
+      }
     }
   }
 
@@ -308,15 +347,34 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     explorerBusy.value = true
     explorerError.value = ''
     try {
+      const nextEntries = [...remoteDirectory.value.entries]
+
       for (const file of files) {
         const data = new Uint8Array(await file.arrayBuffer())
-        await window.api.ssh.uploadRemoteFile({
+        const result = await window.api.ssh.uploadRemoteFile({
           directory: remoteDirectory.value.path,
           name: file.name,
           data
         })
+
+        const nextEntry: RemoteEntry = {
+          name: file.name,
+          path: result.path,
+          kind: 'file',
+          size: file.size,
+          modifiedAt: Date.now()
+        }
+
+        const existingIndex = nextEntries.findIndex((entry) => entry.path === result.path)
+        if (existingIndex >= 0) {
+          nextEntries.splice(existingIndex, 1, nextEntry)
+        } else {
+          nextEntries.push(nextEntry)
+        }
       }
-      await loadRemoteDirectory(remoteDirectory.value.path)
+
+      patchRemoteDirectoryEntries(() => nextEntries)
+      void loadRemoteDirectory(remoteDirectory.value.path, { silent: true })
     } catch (error) {
       explorerError.value = error instanceof Error ? error.message : 'Failed to upload files.'
     } finally {
@@ -330,9 +388,23 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     explorerBusy.value = true
     explorerError.value = ''
     try {
-      const path = `${remoteDirectory.value.path.replace(/\/$/, '')}/${name.trim()}`
+      const trimmedName = name.trim()
+      const basePath = remoteDirectory.value.path.replace(/\/$/, '')
+      const path = `${basePath}/${trimmedName}`
       await window.api.ssh.createRemoteDirectory({ path })
-      await loadRemoteDirectory(remoteDirectory.value.path)
+
+      patchRemoteDirectoryEntries((entries) => [
+        ...entries.filter((entry) => entry.path !== path),
+        {
+          name: trimmedName,
+          path,
+          kind: 'directory',
+          size: 0,
+          modifiedAt: Date.now()
+        }
+      ])
+
+      void loadRemoteDirectory(remoteDirectory.value.path, { silent: true })
     } catch (error) {
       explorerError.value = error instanceof Error ? error.message : 'Failed to create directory.'
     } finally {
@@ -346,13 +418,31 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     explorerBusy.value = true
     explorerError.value = ''
     try {
+      const entry = remoteDirectory.value.entries.find((item) => item.path === oldPath)
       const parentPath = oldPath.slice(0, oldPath.lastIndexOf('/')) || '/'
       const newPath = parentPath === '/' ? `/${newName.trim()}` : `${parentPath}/${newName.trim()}`
       await window.api.ssh.renameRemoteEntry({ oldPath, newPath })
-      if (remotePreview.value?.path === oldPath) {
-        remotePreview.value = null
+
+      patchRemoteDirectoryEntries((entries) =>
+        entries.map((item) =>
+          item.path === oldPath
+            ? {
+                ...item,
+                name: newName.trim(),
+                path: newPath
+              }
+            : item
+        )
+      )
+
+      if (remotePreview.value?.path === oldPath && entry?.kind === 'file') {
+        remotePreview.value = {
+          ...remotePreview.value,
+          path: newPath
+        }
       }
-      await loadRemoteDirectory(remoteDirectory.value.path)
+
+      void loadRemoteDirectory(remoteDirectory.value.path, { silent: true })
     } catch (error) {
       explorerError.value = error instanceof Error ? error.message : 'Failed to rename entry.'
     } finally {
@@ -367,10 +457,14 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     explorerError.value = ''
     try {
       await window.api.ssh.deleteRemoteEntry({ path, recursive: true })
-      if (remotePreview.value?.path === path) {
+
+      patchRemoteDirectoryEntries((entries) => entries.filter((entry) => entry.path !== path))
+
+      if (remotePreview.value?.path === path || remotePreview.value?.path.startsWith(`${path}/`)) {
         remotePreview.value = null
       }
-      await loadRemoteDirectory(remoteDirectory.value.path)
+
+      void loadRemoteDirectory(remoteDirectory.value.path, { silent: true })
     } catch (error) {
       explorerError.value = error instanceof Error ? error.message : 'Failed to delete entry.'
     } finally {
