@@ -65,3 +65,14 @@ export type SystemMetrics = {
 }
 
 export type LiveSystemMetrics = Pick<SystemMetrics, 'cpuPercent' | 'memoryUsedMb' | 'memoryTotalMb'>
+
+export type RemoteApp = {
+  id: string
+  name: string
+  kind: 'service' | 'docker'
+  status: string
+  runtime: string | null
+  image: string | null
+  ports: string | null
+  description: string | null
+}

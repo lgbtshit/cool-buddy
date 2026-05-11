@@ -105,3 +105,16 @@ export type RawSystemMetrics = {
   architectureRaw: string
   uptimeRaw: string
 }
+
+export type RemoteAppKind = 'service' | 'docker'
+
+export type RemoteApp = {
+  id: string
+  name: string
+  kind: RemoteAppKind
+  status: string
+  runtime: string | null
+  image: string | null
+  ports: string | null
+  description: string | null
+}

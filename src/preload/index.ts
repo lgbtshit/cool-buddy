@@ -63,6 +63,17 @@ type SystemMetrics = {
 
 type LiveSystemMetrics = Pick<SystemMetrics, 'cpuPercent' | 'memoryUsedMb' | 'memoryTotalMb'>
 
+type RemoteApp = {
+  id: string
+  name: string
+  kind: 'service' | 'docker'
+  status: string
+  runtime: string | null
+  image: string | null
+  ports: string | null
+  description: string | null
+}
+
 const api = {
   sessions: {
     list: (): Promise<SessionItem[]> => ipcRenderer.invoke('sessions:list'),
@@ -99,6 +110,7 @@ const api = {
       ipcRenderer.invoke('ssh:get-system-metrics'),
     getLiveMetrics: (): Promise<LiveSystemMetrics | null> =>
       ipcRenderer.invoke('ssh:get-live-metrics'),
+    getRemoteApps: (): Promise<RemoteApp[]> => ipcRenderer.invoke('ssh:get-remote-apps'),
     input: (data: string) => ipcRenderer.send('ssh:input', data),
     resize: (size: { cols: number; rows: number }) => ipcRenderer.send('ssh:resize', size),
     onData: (listener: (data: string) => void) => {

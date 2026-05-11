@@ -19,6 +19,7 @@ import {
   sftpRealpath,
   uploadRemoteFile
 } from '../ssh/remote-files'
+import { readRemoteApps } from '../ssh/remote-apps'
 import { readLiveSystemMetrics, readSystemMetrics } from '../ssh/system-metrics'
 import type { SshConnectPayload } from '../shared/types'
 
@@ -145,6 +146,7 @@ export function registerSshIpc(): void {
   ipcMain.handle('ssh:delete-remote-entry', async (_event, payload) => deleteRemoteEntry(payload))
   ipcMain.handle('ssh:get-system-metrics', async () => readSystemMetrics())
   ipcMain.handle('ssh:get-live-metrics', async () => readLiveSystemMetrics())
+  ipcMain.handle('ssh:get-remote-apps', async () => readRemoteApps())
 
   sshHandlersRegistered = true
 }

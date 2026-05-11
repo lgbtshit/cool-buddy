@@ -7,6 +7,7 @@ import type {
   ConnectionState,
   LiveSystemMetrics,
   Locale,
+  RemoteApp,
   RemoteDirectory,
   RemoteEntry,
   SessionDraft,
@@ -63,12 +64,15 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const sessionModalOpen = ref(false)
   const tabMenu = ref<TabMenuState | null>(null)
   const remoteDirectory = ref<RemoteDirectory | null>(null)
+  const remoteApps = ref<RemoteApp[]>([])
   const remotePreview = ref<{ path: string; content: string } | null>(null)
   const systemMetrics = ref<SystemMetrics | null>(null)
   const showHiddenFiles = ref(false)
   const explorerLoading = ref(false)
   const explorerBusy = ref(false)
   const explorerError = ref('')
+  const remoteAppsLoading = ref(false)
+  const remoteAppsError = ref('')
   const metricsLoading = ref(false)
   let liveMetricsRefreshTimer: number | null = null
   let fullMetricsRefreshTimer: number | null = null
@@ -264,6 +268,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     statusMessage.value = `${t('connected')} ${form.value.host}:${form.value.port}`
 
     await loadSystemMetrics()
+    await loadRemoteApps()
     startMetricsRefresh()
     await loadRemoteDirectory(result.remotePath)
   }
@@ -501,6 +506,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
     fullMetricsRefreshTimer = window.setInterval(() => {
       void loadSystemMetrics({ silent: true })
+      void loadRemoteApps({ silent: true })
     }, FULL_METRICS_REFRESH_INTERVAL_MS)
   }
 
@@ -525,6 +531,33 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
         : createFallbackMetricsSnapshot(liveMetrics)
     } finally {
       liveMetricsRequestPending = false
+    }
+  }
+
+  async function loadRemoteApps(options?: { silent?: boolean }) {
+    if (!isConnected.value) {
+      remoteApps.value = []
+      remoteAppsLoading.value = false
+      remoteAppsError.value = ''
+      return
+    }
+
+    const silent = options?.silent ?? false
+    if (!silent) {
+      remoteAppsLoading.value = true
+    }
+
+    remoteAppsError.value = ''
+
+    try {
+      remoteApps.value = await window.api.ssh.getRemoteApps()
+    } catch (error) {
+      remoteApps.value = []
+      remoteAppsError.value = error instanceof Error ? error.message : 'Failed to load remote apps.'
+    } finally {
+      if (!silent) {
+        remoteAppsLoading.value = false
+      }
     }
   }
 
@@ -563,11 +596,14 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     if (payload.status === 'disconnected' || payload.status === 'error') {
       stopMetricsRefresh()
       remoteDirectory.value = null
+      remoteApps.value = []
       remotePreview.value = null
       systemMetrics.value = null
       explorerBusy.value = false
       explorerLoading.value = false
+      remoteAppsLoading.value = false
       metricsLoading.value = false
+      remoteAppsError.value = ''
       metricsRequestPending = false
       liveMetricsRequestPending = false
       if (payload.status === 'disconnected') {
@@ -616,6 +652,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     deleteRemoteEntry,
     latencyLabel,
     loadLiveMetrics,
+    loadRemoteApps,
     loadSystemMetrics,
     loadSessions,
     loadRemoteDirectory,
@@ -627,6 +664,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     openTabMenuAt,
     openTabs,
     removeTab,
+    remoteApps,
+    remoteAppsError,
+    remoteAppsLoading,
     remoteDirectory,
     remotePreview,
     renameRemoteEntry,

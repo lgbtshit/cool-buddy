@@ -62,6 +62,17 @@ type SystemMetrics = {
 
 type LiveSystemMetrics = Pick<SystemMetrics, 'cpuPercent' | 'memoryUsedMb' | 'memoryTotalMb'>
 
+type RemoteApp = {
+  id: string
+  name: string
+  kind: 'service' | 'docker'
+  status: string
+  runtime: string | null
+  image: string | null
+  ports: string | null
+  description: string | null
+}
+
 type AppApi = {
   sessions: {
     list: () => Promise<SessionItem[]>
@@ -88,6 +99,7 @@ type AppApi = {
     }) => Promise<{ ok: true; path: string }>
     getSystemMetrics: () => Promise<SystemMetrics | null>
     getLiveMetrics: () => Promise<LiveSystemMetrics | null>
+    getRemoteApps: () => Promise<RemoteApp[]>
     input: (data: string) => void
     resize: (size: { cols: number; rows: number }) => void
     onData: (listener: (data: string) => void) => () => void
