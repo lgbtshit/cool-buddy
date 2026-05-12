@@ -1,22 +1,22 @@
 <script setup lang="ts">
-import { X } from 'lucide-vue-next'
-import { useAppCopy } from '../../composables/use-app-copy'
-import type { SystemMetrics } from '../../types/ssh-console'
+import { X } from 'lucide-vue-next';
+import { useAppCopy } from '../../composables/use-app-copy';
+import type { SystemMetrics } from '../../types/ssh-console';
 
 defineProps<{
-  open: boolean
-  metrics: SystemMetrics | null
-}>()
+  open: boolean;
+  metrics: SystemMetrics | null;
+}>();
 
 const emit = defineEmits<{
-  close: []
-}>()
+  close: [];
+}>();
 
-const { t } = useAppCopy()
+const { t } = useAppCopy();
 
 function formatMemoryGb(valueMb: number): string {
-  const valueGb = valueMb / 1024
-  return valueGb >= 10 ? valueGb.toFixed(1) : valueGb.toFixed(2)
+  const valueGb = valueMb / 1024;
+  return valueGb >= 10 ? valueGb.toFixed(1) : valueGb.toFixed(2);
 }
 </script>
 

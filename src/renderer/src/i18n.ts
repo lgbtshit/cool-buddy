@@ -1,9 +1,9 @@
-export type Locale = 'zh-CN' | 'en-US'
+export type Locale = 'zh-CN' | 'en-US';
 
 export const localeLabels: Record<Locale, string> = {
   'zh-CN': '\u4e2d\u6587',
   'en-US': 'EN'
-}
+};
 
 export const messages = {
   'zh-CN': {
@@ -236,6 +236,6 @@ export const messages = {
     logInvalidFileMessage:
       'Please enter a real log file path. Directories and non-file targets cannot be streamed.'
   }
-} as const
+} as const;
 
-export type MessageKey = keyof (typeof messages)['zh-CN']
+export type MessageKey = keyof (typeof messages)['zh-CN'];

@@ -10,15 +10,15 @@ import {
   Upload,
   FileText,
   FolderOpen
-} from 'lucide-vue-next'
-import { storeToRefs } from 'pinia'
-import { computed, nextTick, ref, watch } from 'vue'
-import { useAppCopy } from '../../composables/use-app-copy'
-import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue'
-import { useSshConsoleStore } from '../../stores/ssh-console'
-import type { RemoteEntry } from '../../types/ssh-console'
+} from 'lucide-vue-next';
+import { storeToRefs } from 'pinia';
+import { computed, nextTick, ref, watch } from 'vue';
+import { useAppCopy } from '../../composables/use-app-copy';
+import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
+import { useSshConsoleStore } from '../../stores/ssh-console';
+import type { RemoteEntry } from '../../types/ssh-console';
 
-const store = useSshConsoleStore()
+const store = useSshConsoleStore();
 const {
   explorerBusy,
   explorerError,
@@ -27,223 +27,223 @@ const {
   remoteDirectory,
   remotePreview,
   showHiddenFiles
-} = storeToRefs(store)
-const { t } = useAppCopy()
+} = storeToRefs(store);
+const { t } = useAppCopy();
 
-const fileInput = ref<HTMLInputElement | null>(null)
-const dropActive = ref(false)
-const pathInput = ref('')
-const selectedEntryPath = ref('')
-const editingEntryPath = ref('')
-const editingName = ref('')
-const renamingEntryPath = ref('')
-const renameInput = ref<HTMLInputElement | null>(null)
-const pathCompletionMatches = ref<string[]>([])
-const pathCompletionIndex = ref(-1)
-const pathCompletionQuery = ref('')
+const fileInput = ref<HTMLInputElement | null>(null);
+const dropActive = ref(false);
+const pathInput = ref('');
+const selectedEntryPath = ref('');
+const editingEntryPath = ref('');
+const editingName = ref('');
+const renamingEntryPath = ref('');
+const renameInput = ref<HTMLInputElement | null>(null);
+const pathCompletionMatches = ref<string[]>([]);
+const pathCompletionIndex = ref(-1);
+const pathCompletionQuery = ref('');
 
 const previewLines = computed(() => {
-  if (!remotePreview.value) return []
-  return remotePreview.value.content.split(/\r?\n/).slice(0, 10)
-})
+  if (!remotePreview.value) return [];
+  return remotePreview.value.content.split(/\r?\n/).slice(0, 10);
+});
 
 const canGoToParentDirectory = computed(() => {
-  const currentPath = remoteDirectory.value?.path?.trim()
-  return Boolean(currentPath && currentPath !== '/')
-})
+  const currentPath = remoteDirectory.value?.path?.trim();
+  return Boolean(currentPath && currentPath !== '/');
+});
 
 const visibleEntries = computed(() => {
-  const entries = remoteDirectory.value?.entries ?? []
+  const entries = remoteDirectory.value?.entries ?? [];
   if (showHiddenFiles.value) {
-    return entries
+    return entries;
   }
 
-  return entries.filter((entry) => !entry.name.startsWith('.'))
-})
+  return entries.filter((entry) => !entry.name.startsWith('.'));
+});
 
 watch(
   () => remoteDirectory.value?.path,
   (path) => {
-    pathInput.value = path ?? ''
-    selectedEntryPath.value = ''
-    editingEntryPath.value = ''
-    editingName.value = ''
-    resetPathCompletionState()
+    pathInput.value = path ?? '';
+    selectedEntryPath.value = '';
+    editingEntryPath.value = '';
+    editingName.value = '';
+    resetPathCompletionState();
   },
   { immediate: true }
-)
+);
 
 function resetPathCompletionState() {
-  pathCompletionMatches.value = []
-  pathCompletionIndex.value = -1
-  pathCompletionQuery.value = ''
+  pathCompletionMatches.value = [];
+  pathCompletionIndex.value = -1;
+  pathCompletionQuery.value = '';
 }
 
 function isSameMatchList(left: string[], right: string[]) {
-  return left.length === right.length && left.every((value, index) => value === right[index])
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 async function openEntry(entry: RemoteEntry) {
-  selectedEntryPath.value = entry.path
-  editingEntryPath.value = ''
-  await store.openRemoteEntry(entry)
+  selectedEntryPath.value = entry.path;
+  editingEntryPath.value = '';
+  await store.openRemoteEntry(entry);
 }
 
 function triggerUploadPicker() {
-  fileInput.value?.click()
+  fileInput.value?.click();
 }
 
 async function handleFileSelection(event: Event) {
-  const files = Array.from((event.target as HTMLInputElement).files ?? [])
+  const files = Array.from((event.target as HTMLInputElement).files ?? []);
   if (files.length > 0) {
-    await store.uploadRemoteFiles(files)
+    await store.uploadRemoteFiles(files);
   }
 
-  ;(event.target as HTMLInputElement).value = ''
+  (event.target as HTMLInputElement).value = '';
 }
 
 async function handleDrop(event: DragEvent) {
-  event.preventDefault()
-  dropActive.value = false
-  const files = Array.from(event.dataTransfer?.files ?? [])
+  event.preventDefault();
+  dropActive.value = false;
+  const files = Array.from(event.dataTransfer?.files ?? []);
   if (files.length > 0) {
-    await store.uploadRemoteFiles(files)
+    await store.uploadRemoteFiles(files);
   }
 }
 
 async function handleCreateDirectory() {
-  const name = window.prompt(t('newFolderPrompt'))
-  if (!name) return
-  await store.createRemoteDirectory(name)
+  const name = window.prompt(t('newFolderPrompt'));
+  if (!name) return;
+  await store.createRemoteDirectory(name);
 }
 
 async function handleRename(entry: RemoteEntry) {
-  selectedEntryPath.value = entry.path
-  editingEntryPath.value = entry.path
-  editingName.value = entry.name
-  await nextTick()
-  const input = renameInput.value
-  if (!input) return
+  selectedEntryPath.value = entry.path;
+  editingEntryPath.value = entry.path;
+  editingName.value = entry.name;
+  await nextTick();
+  const input = renameInput.value;
+  if (!input) return;
 
-  input.focus()
+  input.focus();
   const extensionIndex =
-    entry.kind === 'file' && entry.name.includes('.') ? entry.name.lastIndexOf('.') : -1
-  const selectionEnd = extensionIndex > 0 ? extensionIndex : entry.name.length
-  input.setSelectionRange(0, selectionEnd)
+    entry.kind === 'file' && entry.name.includes('.') ? entry.name.lastIndexOf('.') : -1;
+  const selectionEnd = extensionIndex > 0 ? extensionIndex : entry.name.length;
+  input.setSelectionRange(0, selectionEnd);
 }
 
 async function handleDelete(entry: RemoteEntry) {
-  const confirmed = window.confirm(`${t('deleteConfirm')} ${entry.name}?`)
-  if (!confirmed) return
-  await store.deleteRemoteEntry(entry.path)
+  const confirmed = window.confirm(`${t('deleteConfirm')} ${entry.name}?`);
+  if (!confirmed) return;
+  await store.deleteRemoteEntry(entry.path);
 }
 
 async function submitPath() {
-  const nextPath = pathInput.value.trim()
-  if (!nextPath) return
-  await store.loadRemoteDirectory(nextPath)
+  const nextPath = pathInput.value.trim();
+  if (!nextPath) return;
+  await store.loadRemoteDirectory(nextPath);
 }
 
 async function handlePathTabComplete() {
   if (!isConnected.value || explorerBusy.value || explorerLoading.value) {
-    return
+    return;
   }
 
-  const currentValue = pathInput.value
-  const basePath = remoteDirectory.value?.path?.trim() || '.'
+  const currentValue = pathInput.value;
+  const basePath = remoteDirectory.value?.path?.trim() || '.';
   const result = await window.api.ssh.completeRemotePath({
     input: currentValue,
     basePath
-  })
+  });
 
   if (!result.matches.length) {
-    resetPathCompletionState()
-    return
+    resetPathCompletionState();
+    return;
   }
 
   const canCycle =
     pathCompletionQuery.value === currentValue &&
     isSameMatchList(pathCompletionMatches.value, result.matches) &&
-    result.matches.length > 1
+    result.matches.length > 1;
 
   if (canCycle) {
     const nextIndex =
-      (pathCompletionIndex.value + 1 + result.matches.length) % result.matches.length
-    pathCompletionIndex.value = nextIndex
-    pathCompletionQuery.value = result.matches[nextIndex]
-    pathInput.value = result.matches[nextIndex]
-    return
+      (pathCompletionIndex.value + 1 + result.matches.length) % result.matches.length;
+    pathCompletionIndex.value = nextIndex;
+    pathCompletionQuery.value = result.matches[nextIndex];
+    pathInput.value = result.matches[nextIndex];
+    return;
   }
 
-  pathCompletionMatches.value = result.matches
-  pathCompletionIndex.value = result.matches.indexOf(result.value)
-  pathCompletionQuery.value = result.value
-  pathInput.value = result.value
+  pathCompletionMatches.value = result.matches;
+  pathCompletionIndex.value = result.matches.indexOf(result.value);
+  pathCompletionQuery.value = result.value;
+  pathInput.value = result.value;
 }
 
 async function goToParentDirectory() {
-  const currentPath = remoteDirectory.value?.path?.trim()
-  if (!currentPath || currentPath === '/') return
+  const currentPath = remoteDirectory.value?.path?.trim();
+  if (!currentPath || currentPath === '/') return;
 
-  const normalizedPath = currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath
-  const lastSlashIndex = normalizedPath.lastIndexOf('/')
-  const parentPath = lastSlashIndex <= 0 ? '/' : normalizedPath.slice(0, lastSlashIndex)
-  await store.loadRemoteDirectory(parentPath)
+  const normalizedPath = currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath;
+  const lastSlashIndex = normalizedPath.lastIndexOf('/');
+  const parentPath = lastSlashIndex <= 0 ? '/' : normalizedPath.slice(0, lastSlashIndex);
+  await store.loadRemoteDirectory(parentPath);
 }
 
 function handleEntryClick(entry: RemoteEntry, event: MouseEvent) {
-  if (event.detail > 1) return
+  if (event.detail > 1) return;
 
   if (editingEntryPath.value && editingEntryPath.value !== entry.path) {
-    editingEntryPath.value = ''
-    editingName.value = ''
+    editingEntryPath.value = '';
+    editingName.value = '';
   }
 
-  selectedEntryPath.value = entry.path
+  selectedEntryPath.value = entry.path;
 }
 
 async function handleEntryNameClick(entry: RemoteEntry) {
   if (editingEntryPath.value === entry.path || renamingEntryPath.value === entry.path) {
-    return
+    return;
   }
 
   if (selectedEntryPath.value !== entry.path) {
-    selectedEntryPath.value = entry.path
-    return
+    selectedEntryPath.value = entry.path;
+    return;
   }
 
-  await handleRename(entry)
+  await handleRename(entry);
 }
 
 function cancelRename() {
   if (renamingEntryPath.value) {
-    return
+    return;
   }
 
-  editingEntryPath.value = ''
-  editingName.value = ''
+  editingEntryPath.value = '';
+  editingName.value = '';
 }
 
 async function submitRename(entry: RemoteEntry) {
   if (editingEntryPath.value !== entry.path || renamingEntryPath.value === entry.path) {
-    return
+    return;
   }
 
-  const nextName = editingName.value.trim()
+  const nextName = editingName.value.trim();
   if (!nextName || nextName === entry.name) {
-    cancelRename()
-    return
+    cancelRename();
+    return;
   }
 
-  renamingEntryPath.value = entry.path
-  editingEntryPath.value = ''
-  editingName.value = ''
+  renamingEntryPath.value = entry.path;
+  editingEntryPath.value = '';
+  editingName.value = '';
 
   try {
-    await store.renameRemoteEntry(entry.path, nextName)
-    selectedEntryPath.value = ''
+    await store.renameRemoteEntry(entry.path, nextName);
+    selectedEntryPath.value = '';
   } finally {
-    renamingEntryPath.value = ''
+    renamingEntryPath.value = '';
   }
 }
 </script>
@@ -322,7 +322,6 @@ async function submitRename(entry: RemoteEntry) {
           <button
             class="mini-icon-btn remote-path-up-btn"
             :disabled="!canGoToParentDirectory || explorerLoading || explorerBusy"
-            type="button"
             @click="void goToParentDirectory()"
           >
             <ArrowUp :size="14" />
@@ -362,7 +361,6 @@ async function submitRename(entry: RemoteEntry) {
                 v-else
                 class="remote-entry-name"
                 :class="{ 'is-selected': selectedEntryPath === entry.path }"
-                type="button"
                 @click.stop="void handleEntryNameClick(entry)"
                 @dblclick.stop="void openEntry(entry)"
               >

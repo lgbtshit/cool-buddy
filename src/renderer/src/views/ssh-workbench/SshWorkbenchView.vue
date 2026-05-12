@@ -1,23 +1,23 @@
 <script setup lang="ts">
-import { FitAddon } from '@xterm/addon-fit'
-import { Terminal } from 'xterm'
-import 'xterm/css/xterm.css'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useAppCopy } from '../../composables/use-app-copy'
-import InspectorSidebar from '../../components/inspector-sidebar/InspectorSidebar.vue'
-import KeybindingsModal from '../../components/keybindings-modal/KeybindingsModal.vue'
-import LogAlertModal from '../../components/log-alert-modal/LogAlertModal.vue'
-import LogPanel from '../../components/log-panel/LogPanel.vue'
-import LogSettingsModal from '../../components/log-settings-modal/LogSettingsModal.vue'
-import PasteConfirmModal from '../../components/paste-confirm-modal/PasteConfirmModal.vue'
-import SessionModal from '../../components/session-modal/SessionModal.vue'
-import SessionSidebar from '../../components/session-sidebar/SessionSidebar.vue'
-import TerminalPanel from '../../components/terminal-panel/TerminalPanel.vue'
-import TopBar from '../../components/top-bar/TopBar.vue'
-import { useSshConsoleStore } from '../../stores/ssh-console'
+import { FitAddon } from '@xterm/addon-fit';
+import { Terminal } from 'xterm';
+import 'xterm/css/xterm.css';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useAppCopy } from '../../composables/use-app-copy';
+import InspectorSidebar from '../../components/inspector-sidebar/InspectorSidebar.vue';
+import KeybindingsModal from '../../components/keybindings-modal/KeybindingsModal.vue';
+import LogAlertModal from '../../components/log-alert-modal/LogAlertModal.vue';
+import LogPanel from '../../components/log-panel/LogPanel.vue';
+import LogSettingsModal from '../../components/log-settings-modal/LogSettingsModal.vue';
+import PasteConfirmModal from '../../components/paste-confirm-modal/PasteConfirmModal.vue';
+import SessionModal from '../../components/session-modal/SessionModal.vue';
+import SessionSidebar from '../../components/session-sidebar/SessionSidebar.vue';
+import TerminalPanel from '../../components/terminal-panel/TerminalPanel.vue';
+import TopBar from '../../components/top-bar/TopBar.vue';
+import { useSshConsoleStore } from '../../stores/ssh-console';
 
-const store = useSshConsoleStore()
+const store = useSshConsoleStore();
 const {
   activeSession,
   connectionLabel,
@@ -30,17 +30,17 @@ const {
   logTailPath,
   logTailState,
   canStartLogTail
-} = storeToRefs(store)
-const { t } = useAppCopy()
+} = storeToRefs(store);
+const { t } = useAppCopy();
 
-const terminalPanelRef = ref<InstanceType<typeof TerminalPanel> | null>(null)
-const pasteConfirmOpen = ref(false)
-const keybindingsOpen = ref(false)
-const logAlertMessage = ref('')
-const logAlertOpen = ref(false)
-const logSettingsDraft = ref(50)
-const logSettingsOpen = ref(false)
-const pendingPasteContent = ref('')
+const terminalPanelRef = ref<InstanceType<typeof TerminalPanel> | null>(null);
+const pasteConfirmOpen = ref(false);
+const keybindingsOpen = ref(false);
+const logAlertMessage = ref('');
+const logAlertOpen = ref(false);
+const logSettingsDraft = ref(50);
+const logSettingsOpen = ref(false);
+const pendingPasteContent = ref('');
 
 const terminal = new Terminal({
   cursorBlink: true,
@@ -71,200 +71,204 @@ const terminal = new Terminal({
     brightCyan: '#8cfbff',
     brightWhite: '#ffffff'
   }
-})
-const fitAddon = new FitAddon()
-terminal.loadAddon(fitAddon)
+});
+const fitAddon = new FitAddon();
+terminal.loadAddon(fitAddon);
 
-let removeDataListener: (() => void) | null = null
-let removeLogDataListener: (() => void) | null = null
-let removeLogStatusListener: (() => void) | null = null
-let removeStatusListener: (() => void) | null = null
-let removeTerminalInput: { dispose: () => void } | null = null
-let resizeObserver: ResizeObserver | null = null
+let removeDataListener: (() => void) | null = null;
+let removeLogDataListener: (() => void) | null = null;
+let removeLogStatusListener: (() => void) | null = null;
+let removeStatusListener: (() => void) | null = null;
+let removeTerminalInput: { dispose: () => void } | null = null;
+let resizeObserver: ResizeObserver | null = null;
 
-const terminalSessionName = computed(() => activeSession.value?.name ?? '--')
-const isMacOS = navigator.userAgent.toLowerCase().includes('mac')
-const hasActiveSession = computed(() => Boolean(activeSession.value))
+const terminalSessionName = computed(() => activeSession.value?.name ?? '--');
+const isMacOS = navigator.userAgent.toLowerCase().includes('mac');
+const hasActiveSession = computed(() => Boolean(activeSession.value));
 const footerSessionMeta = computed(() => {
-  if (!activeSession.value) return ''
-  return `${activeSession.value.host}:${activeSession.value.port} | ${latencyLabel.value}`
-})
+  if (!activeSession.value) return '';
+  return `${activeSession.value.host}:${activeSession.value.port} | ${latencyLabel.value}`;
+});
 
 async function copySelection() {
-  const selection = terminal.getSelection()
-  if (!selection) return
+  const selection = terminal.getSelection();
+  if (!selection) return;
 
-  await navigator.clipboard.writeText(selection)
+  await navigator.clipboard.writeText(selection);
 }
 
 async function pasteClipboard() {
-  const clipboardText = await navigator.clipboard.readText()
-  if (!clipboardText) return
+  const clipboardText = await navigator.clipboard.readText();
+  if (!clipboardText) return;
 
   if (/[\r\n]/.test(clipboardText)) {
-    pendingPasteContent.value = clipboardText
-    pasteConfirmOpen.value = true
-    return
+    pendingPasteContent.value = clipboardText;
+    pasteConfirmOpen.value = true;
+    return;
   }
 
-  terminal.paste(clipboardText)
+  terminal.paste(clipboardText);
 }
 
 function closePasteConfirm() {
-  pasteConfirmOpen.value = false
-  pendingPasteContent.value = ''
-  terminal.focus()
+  pasteConfirmOpen.value = false;
+  pendingPasteContent.value = '';
+  terminal.focus();
 }
 
 function closeKeybindingsModal() {
-  keybindingsOpen.value = false
+  keybindingsOpen.value = false;
 }
 
 function openLogSettingsModal() {
-  logSettingsDraft.value = logTailLineLimit.value
-  logSettingsOpen.value = true
+  logSettingsDraft.value = logTailLineLimit.value;
+  logSettingsOpen.value = true;
 }
 
 function closeLogSettingsModal() {
-  logSettingsOpen.value = false
+  logSettingsOpen.value = false;
 }
 
 function saveLogSettings() {
-  store.setLogTailLineLimit(logSettingsDraft.value)
-  logSettingsOpen.value = false
+  store.setLogTailLineLimit(logSettingsDraft.value);
+  logSettingsOpen.value = false;
 }
 
 function closeLogAlertModal() {
-  logAlertOpen.value = false
-  logAlertMessage.value = ''
+  logAlertOpen.value = false;
+  logAlertMessage.value = '';
 }
 
 async function handleStartLogTail() {
   try {
-    await store.startLogTail()
+    await store.startLogTail();
   } catch (error) {
-    const message = error instanceof Error ? error.message.trim() : t('logInvalidFileMessage')
-    logAlertMessage.value = message || t('logInvalidFileMessage')
-    logAlertOpen.value = true
+    const message = error instanceof Error ? error.message.trim() : t('logInvalidFileMessage');
+    logAlertMessage.value = message || t('logInvalidFileMessage');
+    logAlertOpen.value = true;
   }
 }
 
 function executeAllPaste() {
-  terminal.paste(pendingPasteContent.value)
-  closePasteConfirm()
+  terminal.paste(pendingPasteContent.value);
+  closePasteConfirm();
 }
 
 async function executeLineByLinePaste() {
-  const content = pendingPasteContent.value
-  closePasteConfirm()
+  const content = pendingPasteContent.value;
+  closePasteConfirm();
 
   try {
-    await window.api.ssh.executeCommandBatch({ content })
+    await window.api.ssh.executeCommandBatch({ content });
   } catch (error) {
-    console.error('Batch execution failed.', error)
+    console.error('Batch execution failed.', error);
   }
 }
 
 function getTerminalHost() {
-  return terminalPanelRef.value?.terminalHostEl ?? null
+  return terminalPanelRef.value?.terminalHostEl ?? null;
 }
 
 function syncTerminalSize() {
-  const terminalHost = getTerminalHost()
-  if (!terminalHost) return
-  fitAddon.fit()
-  window.api.ssh.resize({ cols: terminal.cols, rows: terminal.rows })
+  const terminalHost = getTerminalHost();
+  if (!terminalHost) return;
+  fitAddon.fit();
+  window.api.ssh.resize({ cols: terminal.cols, rows: terminal.rows });
 }
 
 function handleGlobalClick() {
-  store.closeTabMenu()
+  store.closeTabMenu();
 }
 
 onMounted(() => {
-  const terminalHost = getTerminalHost()
-  if (!terminalHost) return
+  const terminalHost = getTerminalHost();
+  if (!terminalHost) return;
 
-  terminal.open(terminalHost)
-  fitAddon.fit()
-  terminal.focus()
+  terminal.open(terminalHost);
+  fitAddon.fit();
+  terminal.focus();
   terminal.attachCustomKeyEventHandler((event) => {
-    const modifierPressed = isMacOS ? event.metaKey : event.ctrlKey
-    const key = event.key.toLowerCase()
+    const modifierPressed = isMacOS ? event.metaKey : event.ctrlKey;
+    const key = event.key.toLowerCase();
 
     if (!modifierPressed || !event.shiftKey) {
-      return true
+      return true;
     }
 
     if (key === 'c') {
-      event.preventDefault()
-      void copySelection()
-      return false
+      event.preventDefault();
+      void copySelection();
+      return false;
     }
 
     if (key === 'v') {
-      event.preventDefault()
-      void pasteClipboard()
-      return false
+      event.preventDefault();
+      void pasteClipboard();
+      return false;
     }
 
-    return true
-  })
+    return true;
+  });
 
-  void store.loadSessions({ connectLastSession: true })
+  void store.loadSessions({ connectLastSession: true });
 
   removeTerminalInput = terminal.onData((data) => {
-    window.api.ssh.input(data)
-  })
+    window.api.ssh.input(data);
+  });
 
   removeDataListener = window.api.ssh.onData((data) => {
-    terminal.write(data)
-  })
+    terminal.write(data);
+  });
 
   removeLogDataListener = window.api.ssh.onLogData((data) => {
-    store.appendLogTailChunk(data)
-  })
+    store.appendLogTailChunk(data);
+  });
 
   removeLogStatusListener = window.api.ssh.onLogStatus((payload) => {
-    store.setLogTailStatus(payload)
+    store.setLogTailStatus(payload);
 
     if (payload.status === 'error') {
-      logAlertMessage.value = payload.message.trim() || t('logInvalidFileMessage')
-      logAlertOpen.value = true
+      logAlertMessage.value = payload.message.trim() || t('logInvalidFileMessage');
+      logAlertOpen.value = true;
     }
-  })
+  });
 
   removeStatusListener = window.api.ssh.onStatus((payload) => {
-    store.setStatus(payload)
+    store.setStatus(payload);
 
-    if (payload.status === 'connecting' || payload.status === 'disconnected' || payload.status === 'error') {
-      terminal.reset()
+    if (
+      payload.status === 'connecting' ||
+      payload.status === 'disconnected' ||
+      payload.status === 'error'
+    ) {
+      terminal.reset();
     }
 
     if (payload.status === 'connected') {
-      syncTerminalSize()
-      terminal.focus()
+      syncTerminalSize();
+      terminal.focus();
     }
-  })
+  });
 
   resizeObserver = new ResizeObserver(() => {
-    syncTerminalSize()
-  })
-  resizeObserver.observe(terminalHost)
+    syncTerminalSize();
+  });
+  resizeObserver.observe(terminalHost);
 
-  window.addEventListener('click', handleGlobalClick)
-})
+  window.addEventListener('click', handleGlobalClick);
+});
 
 onBeforeUnmount(() => {
-  store.stopMetricsRefresh()
-  removeDataListener?.()
-  removeLogDataListener?.()
-  removeLogStatusListener?.()
-  removeStatusListener?.()
-  removeTerminalInput?.dispose()
-  resizeObserver?.disconnect()
-  window.removeEventListener('click', handleGlobalClick)
-  terminal.dispose()
-})
+  store.stopMetricsRefresh();
+  removeDataListener?.();
+  removeLogDataListener?.();
+  removeLogStatusListener?.();
+  removeStatusListener?.();
+  removeTerminalInput?.dispose();
+  resizeObserver?.disconnect();
+  window.removeEventListener('click', handleGlobalClick);
+  terminal.dispose();
+});
 </script>
 
 <template>

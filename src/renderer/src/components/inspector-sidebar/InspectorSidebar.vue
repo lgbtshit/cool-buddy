@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { Activity, Bot, Database, Gauge, Send, ServerCog } from 'lucide-vue-next'
-import { storeToRefs } from 'pinia'
-import { ref } from 'vue'
-import { useAppCopy } from '../../composables/use-app-copy'
-import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue'
-import MetricsDetailModal from '../metrics-detail-modal/MetricsDetailModal.vue'
-import { useSshConsoleStore } from '../../stores/ssh-console'
+import { Activity, Bot, Database, Gauge, Send, ServerCog } from 'lucide-vue-next';
+import { storeToRefs } from 'pinia';
+import { ref } from 'vue';
+import { useAppCopy } from '../../composables/use-app-copy';
+import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
+import MetricsDetailModal from '../metrics-detail-modal/MetricsDetailModal.vue';
+import { useSshConsoleStore } from '../../stores/ssh-console';
 
-const store = useSshConsoleStore()
-const { isConnected, metricsLoading, systemMetrics } = storeToRefs(store)
-const { t } = useAppCopy()
-const metricsDetailOpen = ref(false)
+const store = useSshConsoleStore();
+const { isConnected, metricsLoading, systemMetrics } = storeToRefs(store);
+const { t } = useAppCopy();
+const metricsDetailOpen = ref(false);
 
 function formatMemoryGb(valueMb: number): string {
-  const valueGb = valueMb / 1024
-  return valueGb >= 10 ? valueGb.toFixed(1) : valueGb.toFixed(2)
+  const valueGb = valueMb / 1024;
+  return valueGb >= 10 ? valueGb.toFixed(1) : valueGb.toFixed(2);
 }
 </script>
 

@@ -9,108 +9,108 @@ import {
   Search,
   Server,
   SquareTerminal
-} from 'lucide-vue-next'
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import packageJson from '../../../../../package.json'
-import { storeToRefs } from 'pinia'
-import { useAppCopy } from '../../composables/use-app-copy'
-import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue'
-import RemoteExplorerPane from '../remote-explorer-pane/RemoteExplorerPane.vue'
-import SessionDeleteModal from '../session-delete-modal/SessionDeleteModal.vue'
-import { useSshConsoleStore } from '../../stores/ssh-console'
-import type { SessionItem } from '../../types/ssh-console'
+} from 'lucide-vue-next';
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import packageJson from '../../../../../package.json';
+import { storeToRefs } from 'pinia';
+import { useAppCopy } from '../../composables/use-app-copy';
+import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
+import RemoteExplorerPane from '../remote-explorer-pane/RemoteExplorerPane.vue';
+import SessionDeleteModal from '../session-delete-modal/SessionDeleteModal.vue';
+import { useSshConsoleStore } from '../../stores/ssh-console';
+import type { SessionItem } from '../../types/ssh-console';
 
-const store = useSshConsoleStore()
+const store = useSshConsoleStore();
 const { activeSessionId, filteredSessions, searchQuery, sessionGroups, sessions, sessionsLoaded } =
-  storeToRefs(store)
-const { t } = useAppCopy()
-const appVersion = packageJson.version
-const sessionPaneRef = ref<HTMLElement | null>(null)
-const sessionMenuRef = ref<HTMLElement | null>(null)
-const sessionMenu = ref<{ sessionId: string; x: number; y: number } | null>(null)
-const sessionMenuStyle = ref({ left: '0px', top: '0px' })
-const deleteConfirmTarget = ref<SessionItem | null>(null)
-const MENU_GAP_PX = 6
-const VIEWPORT_PADDING_PX = 8
+  storeToRefs(store);
+const { t } = useAppCopy();
+const appVersion = packageJson.version;
+const sessionPaneRef = ref<HTMLElement | null>(null);
+const sessionMenuRef = ref<HTMLElement | null>(null);
+const sessionMenu = ref<{ sessionId: string; x: number; y: number } | null>(null);
+const sessionMenuStyle = ref({ left: '0px', top: '0px' });
+const deleteConfirmTarget = ref<SessionItem | null>(null);
+const MENU_GAP_PX = 6;
+const VIEWPORT_PADDING_PX = 8;
 
 const sessionIconMap = {
   server: Server,
   database: Database,
   hardDrive: HardDrive
-}
+};
 
 const handleConnect = async (session: SessionItem) => {
-  await store.connectToSession(session)
-}
+  await store.connectToSession(session);
+};
 
 const closeSessionMenu = () => {
-  sessionMenu.value = null
-}
+  sessionMenu.value = null;
+};
 
 const updateSessionMenuPosition = () => {
-  if (!sessionMenu.value || !sessionPaneRef.value || !sessionMenuRef.value) return
+  if (!sessionMenu.value || !sessionPaneRef.value || !sessionMenuRef.value) return;
 
-  const paneRect = sessionPaneRef.value.getBoundingClientRect()
-  const menuRect = sessionMenuRef.value.getBoundingClientRect()
+  const paneRect = sessionPaneRef.value.getBoundingClientRect();
+  const menuRect = sessionMenuRef.value.getBoundingClientRect();
   const maxLeft = Math.max(
     VIEWPORT_PADDING_PX,
     window.innerWidth - paneRect.left - menuRect.width - VIEWPORT_PADDING_PX
-  )
+  );
   const maxTop = Math.max(
     VIEWPORT_PADDING_PX,
     window.innerHeight - paneRect.top - menuRect.height - VIEWPORT_PADDING_PX
-  )
+  );
 
   sessionMenuStyle.value = {
     left: `${Math.max(VIEWPORT_PADDING_PX, Math.min(sessionMenu.value.x, maxLeft))}px`,
     top: `${Math.max(VIEWPORT_PADDING_PX, Math.min(sessionMenu.value.y, maxTop))}px`
-  }
-}
+  };
+};
 
 const handleSessionContextMenu = (event: MouseEvent, session: SessionItem) => {
-  event.preventDefault()
-  event.stopPropagation()
+  event.preventDefault();
+  event.stopPropagation();
 
-  const paneRect = sessionPaneRef.value?.getBoundingClientRect()
+  const paneRect = sessionPaneRef.value?.getBoundingClientRect();
   sessionMenu.value = {
     sessionId: session.id,
     x: paneRect ? event.clientX - paneRect.left : event.clientX,
     y: paneRect ? event.clientY - paneRect.top + MENU_GAP_PX : event.clientY
-  }
+  };
 
-  void nextTick(updateSessionMenuPosition)
-}
+  void nextTick(updateSessionMenuPosition);
+};
 
 const openDeleteConfirm = () => {
-  if (!sessionMenu.value) return
+  if (!sessionMenu.value) return;
   deleteConfirmTarget.value =
-    sessions.value.find((item) => item.id === sessionMenu.value?.sessionId) ?? null
-  closeSessionMenu()
-}
+    sessions.value.find((item) => item.id === sessionMenu.value?.sessionId) ?? null;
+  closeSessionMenu();
+};
 
 const closeDeleteConfirm = () => {
-  deleteConfirmTarget.value = null
-}
+  deleteConfirmTarget.value = null;
+};
 
 const confirmDeleteSession = async () => {
-  if (!deleteConfirmTarget.value) return
-  await store.deleteSession(deleteConfirmTarget.value.id)
-  closeDeleteConfirm()
-}
+  if (!deleteConfirmTarget.value) return;
+  await store.deleteSession(deleteConfirmTarget.value.id);
+  closeDeleteConfirm();
+};
 
 const handleGlobalClick = () => {
-  closeSessionMenu()
-}
+  closeSessionMenu();
+};
 
 onMounted(() => {
-  window.addEventListener('click', handleGlobalClick)
-  window.addEventListener('resize', updateSessionMenuPosition)
-})
+  window.addEventListener('click', handleGlobalClick);
+  window.addEventListener('resize', updateSessionMenuPosition);
+});
 
 onBeforeUnmount(() => {
-  window.removeEventListener('click', handleGlobalClick)
-  window.removeEventListener('resize', updateSessionMenuPosition)
-})
+  window.removeEventListener('click', handleGlobalClick);
+  window.removeEventListener('resize', updateSessionMenuPosition);
+});
 </script>
 
 <template>

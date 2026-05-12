@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios from 'axios';
 
 export const httpClient = axios.create({
   timeout: 10000,
@@ -6,4 +6,4 @@ export const httpClient = axios.create({
     'X-Requested-With': 'cool-buddy-renderer',
     'Accept-Language': 'zh-CN'
   }
-})
+});

@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { Keyboard, X } from 'lucide-vue-next'
-import { computed } from 'vue'
-import { useAppCopy } from '../../composables/use-app-copy'
+import { Keyboard, X } from 'lucide-vue-next';
+import { computed } from 'vue';
+import { useAppCopy } from '../../composables/use-app-copy';
 
-const props = defineProps<{
-  open: boolean
-}>()
+defineProps<{
+  open: boolean;
+}>();
 
 const emit = defineEmits<{
-  close: []
-}>()
+  close: [];
+}>();
 
-const { locale, t } = useAppCopy()
+const { locale, t } = useAppCopy();
 
 const shortcutItems = computed(() =>
   locale.value === 'zh-CN'
@@ -46,10 +46,11 @@ const shortcutItems = computed(() =>
         {
           keys: ['Ctrl', 'Shift', 'V'],
           title: 'Paste multi-line commands',
-          detail: 'When multiple lines are detected, a confirmation dialog lets you run all or send line by line.'
+          detail:
+            'When multiple lines are detected, a confirmation dialog lets you run all or send line by line.'
         }
       ]
-)
+);
 </script>
 
 <template>
@@ -66,7 +67,11 @@ const shortcutItems = computed(() =>
       </div>
 
       <div class="keybindings-list">
-        <article v-for="item in shortcutItems" :key="`${item.title}-${item.keys.join('-')}`" class="keybinding-item">
+        <article
+          v-for="item in shortcutItems"
+          :key="`${item.title}-${item.keys.join('-')}`"
+          class="keybinding-item"
+        >
           <div class="keybinding-copy">
             <div class="keybinding-heading">
               <Keyboard :size="14" />

@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { useAppCopy } from '../../composables/use-app-copy'
+import { useAppCopy } from '../../composables/use-app-copy';
 
 defineProps<{
-  open: boolean
-  sessionName: string
-}>()
+  open: boolean;
+  sessionName: string;
+}>();
 
 const emit = defineEmits<{
-  close: []
-  confirm: []
-}>()
+  close: [];
+  confirm: [];
+}>();
 
-const { locale, t } = useAppCopy()
+const { locale, t } = useAppCopy();
 </script>
 
 <template>

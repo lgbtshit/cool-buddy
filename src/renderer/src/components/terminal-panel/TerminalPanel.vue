@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { SquareTerminal } from 'lucide-vue-next'
-import { ref } from 'vue'
-import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue'
+import { SquareTerminal } from 'lucide-vue-next';
+import { ref } from 'vue';
+import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
 
 defineProps<{
-  connectionLabel: string
-  sessionName: string
-  title: string
-  emptyDescription: string
-  hasActiveSession: boolean
-}>()
+  connectionLabel: string;
+  sessionName: string;
+  title: string;
+  emptyDescription: string;
+  hasActiveSession: boolean;
+}>();
 
-const terminalHostEl = ref<HTMLElement | null>(null)
+const terminalHostEl = ref<HTMLElement | null>(null);
 
 defineExpose({
   terminalHostEl
-})
+});
 </script>
 
 <template>

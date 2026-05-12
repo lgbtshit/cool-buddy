@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { X } from 'lucide-vue-next'
-import { storeToRefs } from 'pinia'
-import { useAppCopy } from '../../composables/use-app-copy'
-import { useSshConsoleStore } from '../../stores/ssh-console'
+import { X } from 'lucide-vue-next';
+import { storeToRefs } from 'pinia';
+import { useAppCopy } from '../../composables/use-app-copy';
+import { useSshConsoleStore } from '../../stores/ssh-console';
 
-const store = useSshConsoleStore()
-const { canSaveSession, sessionDraft, sessionModalOpen, sessions } = storeToRefs(store)
-const { t } = useAppCopy()
+const store = useSshConsoleStore();
+const { canSaveSession, sessionDraft, sessionModalOpen, sessions } = storeToRefs(store);
+const { t } = useAppCopy();
 </script>
 
 <template>

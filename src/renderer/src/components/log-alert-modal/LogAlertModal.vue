@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { useAppCopy } from '../../composables/use-app-copy'
+import { useAppCopy } from '../../composables/use-app-copy';
 
 defineProps<{
-  message: string
-  open: boolean
-  title: string
-}>()
+  message: string;
+  open: boolean;
+  title: string;
+}>();
 
 const emit = defineEmits<{
-  close: []
-}>()
+  close: [];
+}>();
 
-const { t } = useAppCopy()
+const { t } = useAppCopy();
 </script>
 
 <template>

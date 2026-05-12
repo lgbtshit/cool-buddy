@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type { LucideIcon } from 'lucide-vue-next'
+import type { LucideIcon } from 'lucide-vue-next';
 
 defineProps<{
-  title: string
-  description: string
-  icon: LucideIcon
-  compact?: boolean
-}>()
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  compact?: boolean;
+}>();
 </script>
 
 <template>

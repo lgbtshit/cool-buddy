@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { useAppCopy } from '../../composables/use-app-copy'
+import { useAppCopy } from '../../composables/use-app-copy';
 
 defineProps<{
-  lineLimit: number
-  maxLines: number
-  minLines: number
-  open: boolean
-}>()
+  lineLimit: number;
+  maxLines: number;
+  minLines: number;
+  open: boolean;
+}>();
 
 const emit = defineEmits<{
-  close: []
-  save: []
-  'update:line-limit': [value: number]
-}>()
+  close: [];
+  save: [];
+  'update:line-limit': [value: number];
+}>();
 
-const { t } = useAppCopy()
+const { t } = useAppCopy();
 </script>
 
 <template>

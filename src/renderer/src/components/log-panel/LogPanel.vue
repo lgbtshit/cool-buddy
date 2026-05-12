@@ -1,116 +1,116 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
-import { MonitorCog, Play, Square, FileText, Settings2 } from 'lucide-vue-next'
-import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue'
+import { nextTick, ref, watch } from 'vue';
+import { MonitorCog, Play, Square, FileText, Settings2 } from 'lucide-vue-next';
+import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
 
 const props = defineProps<{
-  canStart: boolean
-  completionBasePath?: string
-  isConnected: boolean
-  isRunning: boolean
-  logError: string
-  logLineLimit: number
-  logPath: string
-  logLines: string[]
-  logTitle: string
-  logSettingsLabel: string
-  pathPlaceholder: string
-  runningLabel: string
-  startLabel: string
-  stopLabel: string
-  stoppedLabel: string
-  waitingEvents: string
-  emptyTitle: string
-  emptyHint: string
-  disconnectedTitle: string
-  disconnectedHint: string
-}>()
+  canStart: boolean;
+  completionBasePath?: string;
+  isConnected: boolean;
+  isRunning: boolean;
+  logError: string;
+  logLineLimit: number;
+  logPath: string;
+  logLines: string[];
+  logTitle: string;
+  logSettingsLabel: string;
+  pathPlaceholder: string;
+  runningLabel: string;
+  startLabel: string;
+  stopLabel: string;
+  stoppedLabel: string;
+  waitingEvents: string;
+  emptyTitle: string;
+  emptyHint: string;
+  disconnectedTitle: string;
+  disconnectedHint: string;
+}>();
 
 const emit = defineEmits<{
-  pathInput: [value: string]
-  openSettings: []
-  start: []
-  stop: []
-}>()
+  pathInput: [value: string];
+  openSettings: [];
+  start: [];
+  stop: [];
+}>();
 
-const logStreamRef = ref<HTMLElement | null>(null)
-const completionMatches = ref<string[]>([])
-const completionIndex = ref(-1)
-const completionQuery = ref('')
+const logStreamRef = ref<HTMLElement | null>(null);
+const completionMatches = ref<string[]>([]);
+const completionIndex = ref(-1);
+const completionQuery = ref('');
 
 function resetCompletionState() {
-  completionMatches.value = []
-  completionIndex.value = -1
-  completionQuery.value = ''
+  completionMatches.value = [];
+  completionIndex.value = -1;
+  completionQuery.value = '';
 }
 
 function isSameMatchList(left: string[], right: string[]) {
-  return left.length === right.length && left.every((value, index) => value === right[index])
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function handlePathInput(event: Event) {
-  resetCompletionState()
-  emit('pathInput', (event.target as HTMLInputElement).value)
+  resetCompletionState();
+  emit('pathInput', (event.target as HTMLInputElement).value);
 }
 
 async function handlePathTabComplete() {
   if (!props.isConnected || props.isRunning) {
-    return
+    return;
   }
 
-  const currentValue = props.logPath
-  const basePath = props.completionBasePath?.trim() || '.'
+  const currentValue = props.logPath;
+  const basePath = props.completionBasePath?.trim() || '.';
   const result = await window.api.ssh.completeRemotePath({
     input: currentValue,
     basePath
-  })
+  });
 
   if (!result.matches.length) {
-    resetCompletionState()
-    return
+    resetCompletionState();
+    return;
   }
 
   const canCycle =
     completionQuery.value === currentValue &&
     isSameMatchList(completionMatches.value, result.matches) &&
-    result.matches.length > 1
+    result.matches.length > 1;
 
   if (canCycle) {
-    const nextIndex = (completionIndex.value + 1 + result.matches.length) % result.matches.length
-    completionIndex.value = nextIndex
-    completionQuery.value = result.matches[nextIndex]
-    emit('pathInput', result.matches[nextIndex])
-    return
+    const nextIndex = (completionIndex.value + 1 + result.matches.length) % result.matches.length;
+    completionIndex.value = nextIndex;
+    completionQuery.value = result.matches[nextIndex];
+    emit('pathInput', result.matches[nextIndex]);
+    return;
   }
 
-  completionMatches.value = result.matches
-  completionIndex.value = result.matches.indexOf(result.value)
-  completionQuery.value = result.value
-  emit('pathInput', result.value)
+  completionMatches.value = result.matches;
+  completionIndex.value = result.matches.indexOf(result.value);
+  completionQuery.value = result.value;
+  emit('pathInput', result.value);
 }
 
 watch(
   () => [props.logLines.length, props.isRunning] as const,
   async ([lineCount, isRunning]) => {
     if (!isRunning || lineCount === 0) {
-      return
+      return;
     }
 
-    await nextTick()
-    const element = logStreamRef.value
-    if (!element) return
-    element.scrollTop = element.scrollHeight
+    await nextTick();
+    const element = logStreamRef.value;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
   }
-)
+);
 
 watch(
   () => props.logPath,
   (value) => {
     if (value !== completionQuery.value) {
-      resetCompletionState()
+      resetCompletionState();
     }
   }
-)
+);
 </script>
 
 <template>
