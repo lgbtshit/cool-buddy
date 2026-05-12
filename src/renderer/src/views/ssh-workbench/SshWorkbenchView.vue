@@ -20,7 +20,6 @@ import { useSshConsoleStore } from '../../stores/ssh-console';
 
 const store = useSshConsoleStore();
 const {
-  activeSessionId,
   activeSession,
   connectionLabel,
   latencyLabel,
@@ -254,13 +253,6 @@ onMounted(() => {
   });
 
   removeAgentEventListener = window.api.harmlessAgent.onEvent((event) => {
-    if (event.type === 'terminal-output') {
-      if (event.sessionId === activeSessionId.value) {
-        terminal.write(event.content);
-      }
-      return;
-    }
-
     store.ingestHarmlessAgentEvent(event);
   });
 

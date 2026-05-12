@@ -41,7 +41,22 @@ onMounted(() => {
   void store.loadAgentSettings();
 });
 
-const hasAgentMessages = computed(() => agentMessages.value.length > 0);
+const visibleAgentMessages = computed(() =>
+  agentMessages.value.filter(
+    (message) => message.role !== 'assistant' || message.content.trim().length > 0
+  )
+);
+
+const thinkingMessage = computed(() =>
+  agentMessages.value.findLast(
+    (message) => message.role === 'assistant' && message.content.trim().length === 0
+  )
+);
+
+const hasAgentMessages = computed(() => visibleAgentMessages.value.length > 0);
+const showAgentThinking = computed(() =>
+  Boolean(agentRuntime.value.running && thinkingMessage.value)
+);
 
 const agentStatusLabel = computed(() => {
   if (agentRuntime.value.running) {
@@ -65,7 +80,6 @@ function formatAgentTime(value: string): string {
 function getAgentMessageClass(role: string) {
   if (role === 'user') return 'agent-bubble-user';
   if (role === 'assistant') return 'agent-bubble-assistant';
-  if (role === 'tool') return 'agent-bubble-tool';
   return 'agent-bubble-system';
 }
 
@@ -77,6 +91,15 @@ function getApprovalClass(riskLevel: AgentRiskLevel) {
 
 async function sendAgentPrompt() {
   await store.runHarmlessAgentPrompt();
+}
+
+function handleAgentComposerKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) {
+    return;
+  }
+
+  event.preventDefault();
+  void sendAgentPrompt();
 }
 
 async function approvePendingAction() {
@@ -201,18 +224,26 @@ async function rejectPendingAction() {
           </div>
         </div>
 
-        <div v-if="hasAgentMessages" class="agent-thread">
+        <div v-if="hasAgentMessages || showAgentThinking" class="agent-thread">
           <article
-            v-for="message in agentMessages"
+            v-for="message in visibleAgentMessages"
             :key="message.id"
             class="agent-bubble"
             :class="getAgentMessageClass(message.role)"
           >
             <span class="agent-bubble-label">
-              {{ message.toolName ?? message.role }} - {{ formatAgentTime(message.createdAt) }}
+              {{ message.role }} - {{ formatAgentTime(message.createdAt) }}
             </span>
-            <code v-if="message.role === 'tool' || message.toolName">{{ message.content }}</code>
-            <p v-else>{{ message.content }}</p>
+            <p>{{ message.content }}</p>
+          </article>
+
+          <article v-if="showAgentThinking" class="agent-bubble agent-bubble-thinking">
+            <span class="agent-bubble-label">assistant - now</span>
+            <div class="thinking-row" aria-live="polite" aria-label="Agent is thinking">
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+            </div>
           </article>
         </div>
 
@@ -249,6 +280,7 @@ async function rejectPendingAction() {
             :disabled="agentRuntime.running"
             rows="2"
             @input="store.setAiInput(($event.target as HTMLTextAreaElement).value)"
+            @keydown="handleAgentComposerKeydown"
           ></textarea>
           <button class="send-btn" :disabled="agentRuntime.running" @click="void sendAgentPrompt()">
             <Send :size="16" />
@@ -584,10 +616,12 @@ async function rejectPendingAction() {
   background: rgba(0, 220, 229, 0.06);
 }
 
-.agent-bubble-tool {
-  align-self: stretch;
-  border-color: rgba(84, 99, 118, 0.32);
-  background: rgba(16, 20, 28, 0.9);
+.agent-bubble-thinking {
+  align-self: flex-start;
+  border-color: rgba(99, 247, 255, 0.16);
+  background:
+    linear-gradient(180deg, rgba(0, 220, 229, 0.08), rgba(0, 220, 229, 0.03)),
+    rgba(12, 18, 22, 0.92);
 }
 
 .agent-bubble-label {
@@ -596,6 +630,44 @@ async function rejectPendingAction() {
   line-height: 1.4;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.thinking-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 18px;
+}
+
+.thinking-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(99, 247, 255, 0.9);
+  box-shadow: 0 0 12px rgba(99, 247, 255, 0.22);
+  animation: agent-thinking-pulse 1.2s ease-in-out infinite;
+
+  &:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  &:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+}
+
+@keyframes agent-thinking-pulse {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0) scale(0.88);
+    opacity: 0.34;
+  }
+
+  40% {
+    transform: translateY(-1px) scale(1);
+    opacity: 1;
+  }
 }
 
 .timeline-title {

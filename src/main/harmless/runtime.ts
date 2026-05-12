@@ -1,7 +1,12 @@
 import { randomUUID } from 'crypto';
-import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
+import {
+  AIMessage,
+  AIMessageChunk,
+  HumanMessage,
+  SystemMessage,
+  ToolMessage
+} from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';
-import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import {
@@ -14,14 +19,12 @@ import {
   completeRemotePath,
   createRemoteDirectory,
   deleteRemoteEntry,
-  listRemoteDirectory,
-  readRemoteFile,
   renameRemoteEntry,
   writeRemoteTextFile
 } from '../ssh/remote-files';
 import { readRemoteApps } from '../ssh/remote-apps';
 import { readLiveSystemMetrics, readSystemMetrics } from '../ssh/system-metrics';
-import { sshExec, sshExecStreaming } from '../ssh/ssh-runtime';
+import { sshExecInInteractiveShell } from '../ssh/ssh-runtime';
 import type {
   AgentApprovalRequest,
   AgentRiskLevel,
@@ -81,21 +84,12 @@ type PendingExecution = {
   toolIndex: number;
 };
 
-function createCommandBatch(content: string): string {
-  const delimiter = `COOL_BUDDY_AGENT_${Date.now().toString(36)}`;
-  return `sh -se <<'${delimiter}'\n${content}\n${delimiter}`;
-}
-
 function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\"'\"'`)}'`;
 }
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
-}
-
-function normalizeTerminalOutput(content: string): string {
-  return content.replace(/\r?\n/g, '\r\n');
 }
 
 function globToRegExp(pattern: string): RegExp {
@@ -128,21 +122,14 @@ function getMessageText(content: unknown): string {
   return '';
 }
 
-function summarizeToolArgs(args: unknown): string {
-  try {
-    return JSON.stringify(args);
-  } catch {
-    return '[unserializable args]';
-  }
+function formatDirectoryListCommand(input: { path?: string; showHidden?: boolean }): string {
+  const targetPath = input.path?.trim() || '.';
+  const flags = input.showHidden ? '-la' : '-l';
+  return `LC_ALL=C ls ${flags} --group-directories-first -- ${quoteShellArg(targetPath)}`;
 }
 
-function summarizeToolResult(content: string): string {
-  const trimmed = content.trim();
-  if (!trimmed) {
-    return 'Completed with no output.';
-  }
-
-  return trimmed.length > 240 ? `${trimmed.slice(0, 240)}...` : trimmed;
+function formatReadFileCommand(path: string): string {
+  return `sed -n '1,240p' -- ${quoteShellArg(path.trim())}`;
 }
 
 function formatAgentError(error: unknown): string {
@@ -281,7 +268,9 @@ export class HarmlessAgentRuntime {
           tool_call_id: toolCall.id ?? toolCall.name
         })
       );
-      this.appendThreadMessage('tool', toolResult, toolCall.name);
+      if (!payload.approve) {
+        this.appendThreadMessage('system', toolResult);
+      }
 
       const pausedAgain = await this.processToolCalls(pending.toolCalls, pending.toolIndex + 1);
       if (!pausedAgain) {
@@ -343,18 +332,6 @@ export class HarmlessAgentRuntime {
       type: 'state',
       sessionId: this.sessionId,
       snapshot: this.createSnapshot()
-    });
-  }
-
-  private emitTerminalOutput(content: string): void {
-    if (!content) {
-      return;
-    }
-
-    broadcastHarmlessAgentEvent({
-      type: 'terminal-output',
-      sessionId: this.sessionId,
-      content: normalizeTerminalOutput(content)
     });
   }
 
@@ -422,38 +399,17 @@ export class HarmlessAgentRuntime {
     });
   }
 
-  private appendThreadMessageDelta(messageId: string, delta: string): void {
-    if (!delta) {
-      return;
-    }
-
-    const target = this.threadMessages.find((item) => item.id === messageId);
-    if (!target) {
-      return;
-    }
-
-    target.content += delta;
-    broadcastHarmlessAgentEvent({
-      sessionId: this.sessionId,
-      type: 'message-delta',
-      messageId,
-      delta
-    });
-  }
-
-  private formatToolActivity(toolCall: ToolCallShape): string {
-    return `${toolCall.name} ${summarizeToolArgs(toolCall.args)}`;
+  private async executeShellCommandForAgent(command: string): Promise<string> {
+    return await sshExecInInteractiveShell(command);
   }
 
   private async runAgentLoop(settings: ReturnType<HarmlessAgentRuntime['ensureConfigured']>) {
     const baseModel = createAgentModel(settings) as {
       bindTools?: (tools: unknown[]) => {
-        invoke: (
+        stream: (
           messages: BaseMessage[],
-          options?: {
-            callbacks?: BaseCallbackHandler[];
-          }
-        ) => Promise<AIMessage>;
+          options?: Record<string, unknown>
+        ) => Promise<AsyncIterable<AIMessageChunk>>;
       };
     };
     const model = baseModel.bindTools?.(this.modelTools);
@@ -462,35 +418,31 @@ export class HarmlessAgentRuntime {
     }
 
     for (let turn = 0; turn < 8; turn += 1) {
-      let assistantMessageId: string | null = null;
+      const assistantMessage = this.createThreadMessage('assistant', '');
+      let aggregated: AIMessageChunk | null = null;
+      const stream = await model.stream(this.messageHistory);
 
-      const streamHandler = BaseCallbackHandler.fromMethods({
-        handleLLMNewToken: (token) => {
-          if (!token) {
-            return;
-          }
-
-          if (!assistantMessageId) {
-            assistantMessageId = this.createThreadMessage('assistant', '').id;
-          }
-
-          this.appendThreadMessageDelta(assistantMessageId, token);
+      for await (const chunk of stream) {
+        aggregated = aggregated ? aggregated.concat(chunk) : chunk;
+        const content = getMessageText(aggregated.content);
+        if (content) {
+          this.setThreadMessageContent(assistantMessage.id, content);
         }
-      }) as BaseCallbackHandler & { lc_prefer_streaming?: boolean };
-      streamHandler.lc_prefer_streaming = true;
+      }
 
-      const response = (await model.invoke(this.messageHistory, {
-        callbacks: [streamHandler]
-      })) as AIMessage;
+      if (!aggregated) {
+        this.threadMessages = this.threadMessages.filter((item) => item.id !== assistantMessage.id);
+        continue;
+      }
+
+      const response = aggregated as AIMessage;
       this.messageHistory.push(response);
 
       const responseText = getMessageText(response.content);
       if (responseText) {
-        if (!assistantMessageId) {
-          this.appendThreadMessage('assistant', responseText);
-        } else {
-          this.setThreadMessageContent(assistantMessageId, responseText);
-        }
+        this.setThreadMessageContent(assistantMessage.id, responseText);
+      } else {
+        this.threadMessages = this.threadMessages.filter((item) => item.id !== assistantMessage.id);
       }
 
       const toolCalls = (response.tool_calls ?? []) as ToolCallShape[];
@@ -513,14 +465,6 @@ export class HarmlessAgentRuntime {
   private async processToolCalls(toolCalls: ToolCallShape[], startIndex: number): Promise<boolean> {
     for (let index = startIndex; index < toolCalls.length; index += 1) {
       const toolCall = toolCalls[index];
-      this.appendThreadMessage(
-        'system',
-        `Using ${this.formatToolActivity(toolCall)}`,
-        toolCall.name
-      );
-      this.emitTerminalOutput(
-        `\r\n[agent] ${toolCall.name}\r\n[agent] args: ${summarizeToolArgs(toolCall.args)}\r\n`
-      );
 
       try {
         const result = await this.invokeTool(toolCall, { approvalBypass: false });
@@ -531,9 +475,6 @@ export class HarmlessAgentRuntime {
             toolCalls,
             toolIndex: index
           };
-          this.emitTerminalOutput(
-            `[agent] waiting for ${result.approval.riskLevel.toUpperCase()} approval\r\n`
-          );
           this.broadcastState();
           return true;
         }
@@ -544,10 +485,6 @@ export class HarmlessAgentRuntime {
             tool_call_id: toolCall.id ?? toolCall.name
           })
         );
-        this.appendThreadMessage('tool', result.content, toolCall.name);
-        this.emitTerminalOutput(
-          `[agent] completed ${toolCall.name}\r\n[agent] result: ${summarizeToolResult(result.content)}\r\n`
-        );
       } catch (error) {
         const message = error instanceof Error ? error.message : `Tool ${toolCall.name} failed.`;
         this.messageHistory.push(
@@ -556,8 +493,7 @@ export class HarmlessAgentRuntime {
             tool_call_id: toolCall.id ?? toolCall.name
           })
         );
-        this.appendThreadMessage('tool', message, toolCall.name);
-        this.emitTerminalOutput(`[agent] failed ${toolCall.name}: ${message}\r\n`);
+        this.appendThreadMessage('system', message);
       }
     }
 
@@ -615,45 +551,42 @@ export class HarmlessAgentRuntime {
             };
           }
 
-          let output = '';
-          this.emitTerminalOutput(`\r\n[agent] $ ${command}\r\n`);
-          await sshExecStreaming(createCommandBatch(command), (chunk) => {
-            output += chunk;
-            this.emitTerminalOutput(chunk);
-          });
-
-          if (output && !/[\r\n]$/.test(output)) {
-            this.emitTerminalOutput('\r\n');
-          }
-
           return {
             type: 'completed',
-            content: output.trim() || 'Command completed with no output.'
+            content: await this.executeShellCommandForAgent(command)
           };
         }
       },
       {
         name: 'list_remote_directory',
-        description: 'List files and folders from a remote path through SFTP.',
+        description:
+          'List files and folders from a remote path with shell-style output. Prefer this or run_command for directory inspection.',
         schema: z.object({
           path: z.string().optional(),
           showHidden: z.boolean().optional()
         }),
-        execute: async (input: { path?: string; showHidden?: boolean }) => ({
-          type: 'completed',
-          content: formatJson(await listRemoteDirectory(input))
-        })
+        execute: async (input: { path?: string; showHidden?: boolean }) => {
+          const command = formatDirectoryListCommand(input);
+          return {
+            type: 'completed',
+            content: await this.executeShellCommandForAgent(command)
+          };
+        }
       },
       {
         name: 'read_remote_file',
-        description: 'Read the UTF-8 content of a remote file.',
+        description:
+          'Read the first part of a UTF-8 text file with shell-style output. Prefer this or run_command for inspection.',
         schema: z.object({
           path: z.string().min(1)
         }),
-        execute: async (input: { path: string }) => ({
-          type: 'completed',
-          content: formatJson(await readRemoteFile(input))
-        })
+        execute: async (input: { path: string }) => {
+          const command = formatReadFileCommand(input.path);
+          return {
+            type: 'completed',
+            content: await this.executeShellCommandForAgent(command)
+          };
+        }
       },
       {
         name: 'write_remote_text_file',
@@ -821,12 +754,11 @@ export class HarmlessAgentRuntime {
         }),
         execute: async (input: { path: string; lineCount?: number }) => {
           const lineCount = input.lineCount ?? 80;
-          const output = await sshExec(
-            `tail -n ${lineCount} -- ${quoteShellArg(input.path.trim())} 2>/dev/null`
-          );
           return {
             type: 'completed',
-            content: output.trim() || 'Log file returned no content.'
+            content: await this.executeShellCommandForAgent(
+              `tail -n ${lineCount} -- ${quoteShellArg(input.path.trim())} 2>/dev/null`
+            )
           };
         }
       }
