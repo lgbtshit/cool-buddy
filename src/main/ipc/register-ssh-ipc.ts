@@ -3,6 +3,8 @@ import { Client } from 'ssh2'
 import type { ConnectConfig } from 'ssh2'
 import { getMainWindow } from '../state/main-window'
 import {
+  broadcastSshData,
+  filterInteractiveShellDisplay,
   broadcastSshLogData,
   broadcastSshLogStatus,
   broadcastSshStatus,
@@ -94,9 +96,9 @@ export function registerSshIpc(): void {
 
                 setSshStream(stream)
                 stream.on('data', (chunk: Buffer) => {
-                  const mainWindow = getMainWindow()
-                  if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send('ssh:data', chunk.toString('utf8'))
+                  const visibleChunk = filterInteractiveShellDisplay(chunk.toString('utf8'))
+                  if (visibleChunk) {
+                    broadcastSshData(visibleChunk)
                   }
                 })
 
@@ -161,7 +163,7 @@ export function registerSshIpc(): void {
 
     await sshExecStreaming(batchCommand, (chunk) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ssh:data', chunk)
+        broadcastSshData(chunk)
       }
     })
 

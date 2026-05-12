@@ -10,7 +10,8 @@ import {
   Sparkles
 } from 'lucide-vue-next';
 import { storeToRefs } from 'pinia';
-import { computed, onMounted, ref } from 'vue';
+import VueMarkdownStream from 'vue-markdown-stream';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useAppCopy } from '../../composables/use-app-copy';
 import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
 import MetricsDetailModal from '../metrics-detail-modal/MetricsDetailModal.vue';
@@ -31,6 +32,8 @@ const {
 const { locale, t } = useAppCopy();
 const metricsDetailOpen = ref(false);
 const confirmStep = ref(1);
+const approvalSubmitting = ref(false);
+const agentThreadRef = ref<HTMLElement | null>(null);
 
 function formatMemoryGb(valueMb: number): string {
   const valueGb = valueMb / 1024;
@@ -39,6 +42,7 @@ function formatMemoryGb(valueMb: number): string {
 
 onMounted(() => {
   void store.loadAgentSettings();
+  void scrollAgentThreadToBottom();
 });
 
 const visibleAgentMessages = computed(() =>
@@ -69,6 +73,17 @@ const agentStatusLabel = computed(() => {
 
   return 'Ready';
 });
+
+async function scrollAgentThreadToBottom() {
+  await nextTick();
+  const thread = agentThreadRef.value;
+
+  if (!thread) {
+    return;
+  }
+
+  thread.scrollTop = thread.scrollHeight;
+}
 
 function formatAgentTime(value: string): string {
   return new Intl.DateTimeFormat(locale.value, {
@@ -112,11 +127,17 @@ async function approvePendingAction() {
     return;
   }
 
-  await store.resolveHarmlessAgentApproval({
-    approvalId: pendingAgentApproval.value.id,
-    approve: true
-  });
-  confirmStep.value = 1;
+  approvalSubmitting.value = true;
+
+  try {
+    await store.resolveHarmlessAgentApproval({
+      approvalId: pendingAgentApproval.value.id,
+      approve: true
+    });
+    confirmStep.value = 1;
+  } finally {
+    approvalSubmitting.value = false;
+  }
 }
 
 async function rejectPendingAction() {
@@ -124,12 +145,36 @@ async function rejectPendingAction() {
     return;
   }
 
-  await store.resolveHarmlessAgentApproval({
-    approvalId: pendingAgentApproval.value.id,
-    approve: false
-  });
-  confirmStep.value = 1;
+  approvalSubmitting.value = true;
+
+  try {
+    await store.resolveHarmlessAgentApproval({
+      approvalId: pendingAgentApproval.value.id,
+      approve: false
+    });
+    confirmStep.value = 1;
+  } finally {
+    approvalSubmitting.value = false;
+  }
 }
+
+watch(pendingAgentApproval, () => {
+  confirmStep.value = 1;
+  approvalSubmitting.value = false;
+});
+
+watch(
+  () => ({
+    thinking: showAgentThinking.value,
+    messages: visibleAgentMessages.value.map(
+      (message) => `${message.id}:${message.role}:${message.content}:${message.createdAt}`
+    )
+  }),
+  () => {
+    void scrollAgentThreadToBottom();
+  },
+  { flush: 'post' }
+);
 </script>
 
 <template>
@@ -224,7 +269,7 @@ async function rejectPendingAction() {
           </div>
         </div>
 
-        <div v-if="hasAgentMessages || showAgentThinking" class="agent-thread">
+        <div v-if="hasAgentMessages || showAgentThinking" ref="agentThreadRef" class="agent-thread">
           <article
             v-for="message in visibleAgentMessages"
             :key="message.id"
@@ -234,7 +279,7 @@ async function rejectPendingAction() {
             <span class="agent-bubble-label">
               {{ message.role }} - {{ formatAgentTime(message.createdAt) }}
             </span>
-            <p>{{ message.content }}</p>
+            <VueMarkdownStream class="agent-markdown" :content="message.content" />
           </article>
 
           <article v-if="showAgentThinking" class="agent-bubble agent-bubble-thinking">
@@ -304,7 +349,7 @@ async function rejectPendingAction() {
       </EmptyStatePanel>
     </section>
 
-    <div v-if="pendingAgentApproval" class="modal-scrim">
+    <div v-if="pendingAgentApproval && !approvalSubmitting" class="modal-scrim">
       <section
         class="session-modal approval-modal"
         :class="getApprovalClass(pendingAgentApproval.riskLevel)"
@@ -573,23 +618,80 @@ async function rejectPendingAction() {
   border-radius: 8px;
   color: rgba(228, 225, 230, 0.88);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
 
-  p {
+.agent-markdown {
+  min-width: 0;
+
+  :deep(*) {
+    min-width: 0;
+  }
+
+  :deep(p),
+  :deep(li),
+  :deep(blockquote) {
     color: rgba(228, 225, 230, 0.84);
     font-size: 12px;
     line-height: 1.6;
-    white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
   }
 
-  code {
-    display: block;
+  :deep(p),
+  :deep(ul),
+  :deep(ol),
+  :deep(pre),
+  :deep(blockquote) {
+    margin: 0;
+  }
+
+  :deep(p + p),
+  :deep(p + ul),
+  :deep(p + ol),
+  :deep(ul + p),
+  :deep(ol + p),
+  :deep(pre + p),
+  :deep(p + pre) {
+    margin-top: 8px;
+  }
+
+  :deep(ul),
+  :deep(ol) {
+    padding-left: 18px;
+  }
+
+  :deep(a) {
+    color: #63f7ff;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  :deep(code) {
+    display: inline;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #4ff7c0;
+    font-size: 11px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  :deep(pre) {
     margin-bottom: 8px;
     padding: 10px 11px;
     border: 1px solid rgba(58, 73, 74, 0.28);
     border-radius: 6px;
     background: rgba(0, 0, 0, 0.35);
+    overflow: auto;
+  }
+
+  :deep(pre code) {
+    display: block;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
     color: #4ff7c0;
     font-size: 11px;
     line-height: 1.55;

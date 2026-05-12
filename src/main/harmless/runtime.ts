@@ -36,7 +36,7 @@ import type {
   SaveAgentWhitelistPayload
 } from '../shared/types';
 import { createAgentModel } from './model';
-import { assessCommandRisk, getRiskConfirmCount } from './risk';
+import { assessCommandRisk, getRiskConfirmCount, requiresRiskApproval } from './risk';
 import { broadcastHarmlessAgentEvent } from './runtime-events';
 
 const SYSTEM_PROMPT = `
@@ -90,6 +90,50 @@ function quoteShellArg(value: string): string {
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+function serializeMessageForLog(message: BaseMessage) {
+  const messageType =
+    message instanceof SystemMessage
+      ? 'system'
+      : message instanceof HumanMessage
+        ? 'user'
+        : message instanceof ToolMessage
+          ? 'tool'
+          : message instanceof AIMessage
+            ? 'assistant'
+            : message.getType();
+
+  const serialized: Record<string, unknown> = {
+    type: messageType,
+    content: getMessageText(message.content)
+  };
+
+  if (message instanceof ToolMessage) {
+    serialized.toolCallId = message.tool_call_id;
+  }
+
+  if (message instanceof AIMessage && Array.isArray(message.tool_calls) && message.tool_calls.length) {
+    serialized.toolCalls = message.tool_calls.map((toolCall) => ({
+      id: toolCall.id,
+      name: toolCall.name,
+      args: toolCall.args
+    }));
+  }
+
+  return serialized;
+}
+
+function logLlmRequest(payload: Record<string, unknown>) {
+  console.info('[harmless-agent] llm-request', formatJson(payload));
+}
+
+function logLlmSuccess(payload: Record<string, unknown>) {
+  console.info('[harmless-agent] llm-success', formatJson(payload));
+}
+
+function logLlmFailure(payload: Record<string, unknown>) {
+  console.error('[harmless-agent] llm-failure', formatJson(payload));
 }
 
 function globToRegExp(pattern: string): RegExp {
@@ -420,14 +464,35 @@ export class HarmlessAgentRuntime {
     for (let turn = 0; turn < 8; turn += 1) {
       const assistantMessage = this.createThreadMessage('assistant', '');
       let aggregated: AIMessageChunk | null = null;
-      const stream = await model.stream(this.messageHistory);
+      const requestLogPayload = {
+        sessionId: this.sessionId,
+        turn: turn + 1,
+        providerCode: settings.providerCode,
+        providerName: settings.providerName,
+        modelName: settings.modelName,
+        baseUrl: settings.baseUrl.trim(),
+        messages: this.messageHistory.map((message) => serializeMessageForLog(message)),
+        tools: this.toolDefinitions.map((definition) => definition.name)
+      };
 
-      for await (const chunk of stream) {
-        aggregated = aggregated ? aggregated.concat(chunk) : chunk;
-        const content = getMessageText(aggregated.content);
-        if (content) {
-          this.setThreadMessageContent(assistantMessage.id, content);
+      logLlmRequest(requestLogPayload);
+
+      try {
+        const stream = await model.stream(this.messageHistory);
+
+        for await (const chunk of stream) {
+          aggregated = aggregated ? aggregated.concat(chunk) : chunk;
+          const content = getMessageText(aggregated.content);
+          if (content) {
+            this.setThreadMessageContent(assistantMessage.id, content);
+          }
         }
+      } catch (error) {
+        logLlmFailure({
+          ...requestLogPayload,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
       }
 
       if (!aggregated) {
@@ -439,6 +504,18 @@ export class HarmlessAgentRuntime {
       this.messageHistory.push(response);
 
       const responseText = getMessageText(response.content);
+      logLlmSuccess({
+        ...requestLogPayload,
+        response: {
+          content: responseText,
+          toolCalls: (response.tool_calls ?? []).map((toolCall) => ({
+            id: toolCall.id,
+            name: toolCall.name,
+            args: toolCall.args
+          }))
+        }
+      });
+
       if (responseText) {
         this.setThreadMessageContent(assistantMessage.id, responseText);
       } else {
@@ -538,7 +615,7 @@ export class HarmlessAgentRuntime {
             throw new Error(risk.reason);
           }
 
-          if (!options.approvalBypass && risk.riskLevel !== 'p4') {
+          if (!options.approvalBypass && requiresRiskApproval(risk.riskLevel)) {
             return {
               type: 'pending-approval',
               approval: createApprovalRequest({

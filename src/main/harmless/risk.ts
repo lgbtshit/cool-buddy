@@ -101,7 +101,7 @@ export function assessCommandRisk(command: string, isWhitelisted: boolean): Comm
     return {
       allowed: true,
       riskLevel: 'p3',
-      summary: 'Low-risk operational command. Requires lightweight confirmation.'
+      summary: 'Read-only operational command.'
     };
   }
 
@@ -110,6 +110,10 @@ export function assessCommandRisk(command: string, isWhitelisted: boolean): Comm
     riskLevel: 'p4',
     summary: 'Read-only or normal query command.'
   };
+}
+
+export function requiresRiskApproval(riskLevel: AgentRiskLevel): boolean {
+  return riskLevel === 'p0' || riskLevel === 'p1' || riskLevel === 'p2';
 }
 
 export function getRiskConfirmCount(riskLevel: AgentRiskLevel): 1 | 2 {

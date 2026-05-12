@@ -10,6 +10,15 @@ let sftp: SFTPWrapper | null = null;
 let sshLogStream: ClientChannel | null = null;
 let interactiveShellCommandChain: Promise<void> = Promise.resolve();
 
+type InteractiveShellDisplayState = {
+  startMarker: string;
+  endMarkerPrefix: string;
+  phase: 'waiting-for-start' | 'streaming-output';
+  buffer: string;
+};
+
+let interactiveShellDisplayState: InteractiveShellDisplayState | null = null;
+
 export function sendSshStatus(window: BrowserWindow, payload: SshStatusPayload): void {
   window.webContents.send('ssh:status', payload);
 }
@@ -21,6 +30,65 @@ export function broadcastSshStatus(payload: SshStatusPayload): void {
   }
 
   sendSshStatus(mainWindow, payload);
+}
+
+export function broadcastSshData(chunk: string): void {
+  const mainWindow = getMainWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send('ssh:data', chunk);
+}
+
+function normalizeForXterm(chunk: string): string {
+  return chunk.replace(/\r?\n/g, '\r\n');
+}
+
+export function filterInteractiveShellDisplay(chunk: string): string {
+  const state = interactiveShellDisplayState;
+  if (!state) {
+    return chunk;
+  }
+
+  state.buffer += chunk;
+  let visible = '';
+
+  if (state.phase === 'waiting-for-start') {
+    const startIndex = state.buffer.indexOf(state.startMarker);
+    if (startIndex === -1) {
+      if (state.buffer.length > 8192) {
+        state.buffer = state.buffer.slice(-8192);
+      }
+      return '';
+    }
+
+    state.phase = 'streaming-output';
+    state.buffer = state.buffer.slice(startIndex + state.startMarker.length);
+    if (state.buffer.startsWith('\r\n')) {
+      state.buffer = state.buffer.slice(2);
+    } else if (state.buffer.startsWith('\n')) {
+      state.buffer = state.buffer.slice(1);
+    }
+  }
+
+  const endIndex = state.buffer.indexOf(state.endMarkerPrefix);
+  if (endIndex === -1) {
+    visible += state.buffer;
+    state.buffer = '';
+    return visible;
+  }
+
+  visible += state.buffer.slice(0, endIndex);
+  const remainder = state.buffer.slice(endIndex + state.endMarkerPrefix.length);
+  const statusMatch = remainder.match(/^(\d+)\r?\n/);
+  if (!statusMatch) {
+    state.buffer = state.buffer.slice(endIndex);
+    return visible;
+  }
+
+  interactiveShellDisplayState = null;
+  return visible + remainder.slice(statusMatch[0].length);
 }
 
 export function broadcastSshLogData(chunk: string): void {
@@ -160,16 +228,72 @@ export function sshExecStreaming(
   });
 }
 
+export function sshExecForAgent(command: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    broadcastSshData(`${command}\r\n`);
+
+    ensureSshClient().exec(command, (error, stream) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      let stdout = '';
+      let stderr = '';
+
+      stream.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf8');
+        stdout += text;
+        broadcastSshData(normalizeForXterm(text));
+      });
+
+      stream.stderr.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf8');
+        stderr += text;
+        broadcastSshData(normalizeForXterm(text));
+      });
+
+      stream.on('close', (code) => {
+        const combined = `${stdout}${stderr}`.replace(/\r\n/g, '\n').trim();
+        broadcastSshData('\r\n');
+
+        if (code && code !== 0) {
+          reject(new Error(combined || `Command failed with code ${code}`));
+          return;
+        }
+
+        resolve(combined || 'Command completed with no output.');
+      });
+    });
+  });
+}
+
 export function sshExecInInteractiveShell(command: string): Promise<string> {
   const run = async (): Promise<string> => {
     const stream = ensureSshStream();
     const runId = `COOL_BUDDY_SHELL_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     const startMarker = `__CB_START__${runId}__`;
     const endMarkerPrefix = `__CB_END__${runId}__`;
+    const startPrefix = '__CB_START__';
+    const endPrefix = '__CB_END__';
+    const startSuffix = `${runId}__`;
+    const endSuffix = `${runId}__`;
     const wrappedCommand =
-      `printf '%s\\n' '${startMarker}'; ` +
-      `{ ${command}\n}; ` +
-      `status=$?; printf '\\n${endMarkerPrefix}%s\\n' "$status"\n`;
+      `__cb_s0='${startPrefix}'; ` +
+      `__cb_s1='${startSuffix}'; ` +
+      `__cb_e0='${endPrefix}'; ` +
+      `__cb_e1='${endSuffix}'; ` +
+      `printf '%s%s\\n' "$__cb_s0" "$__cb_s1"; ` +
+      `{ ${command}; }; ` +
+      `status=$?; printf '\\n%s%s%s\\n' "$__cb_e0" "$__cb_e1" "$status"\n`;
+
+    interactiveShellDisplayState = {
+      startMarker,
+      endMarkerPrefix,
+      phase: 'waiting-for-start',
+      buffer: ''
+    };
+    broadcastSshData(`${command}\r\n`);
 
     return await new Promise<string>((resolve, reject) => {
       let buffer = '';
@@ -182,6 +306,7 @@ export function sshExecInInteractiveShell(command: string): Promise<string> {
       };
 
       const finishWithError = (error: Error): void => {
+        interactiveShellDisplayState = null;
         cleanup();
         reject(error);
       };
