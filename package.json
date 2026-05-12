@@ -63,6 +63,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@parcel/watcher",
       "better-sqlite3",
       "cpu-features",
       "electron",
