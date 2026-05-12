@@ -13,7 +13,9 @@ export function registerHarmlessAgentIpc(): void {
     return;
   }
 
-  ipcMain.handle('harmless-agent:get-state', async () => harmlessAgentRuntime.getState());
+  ipcMain.handle('harmless-agent:get-state', async (_event, sessionId: string) =>
+    harmlessAgentRuntime.getState(sessionId)
+  );
   ipcMain.handle('harmless-agent:run', async (_event, payload: RunAgentPayload) =>
     harmlessAgentRuntime.run(payload)
   );

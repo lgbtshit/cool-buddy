@@ -20,6 +20,7 @@ import { useSshConsoleStore } from '../../stores/ssh-console';
 
 const store = useSshConsoleStore();
 const {
+  activeSessionId,
   activeSession,
   connectionLabel,
   latencyLabel,
@@ -80,6 +81,7 @@ let removeDataListener: (() => void) | null = null;
 let removeLogDataListener: (() => void) | null = null;
 let removeLogStatusListener: (() => void) | null = null;
 let removeStatusListener: (() => void) | null = null;
+let removeAgentEventListener: (() => void) | null = null;
 let removeTerminalInput: { dispose: () => void } | null = null;
 let resizeObserver: ResizeObserver | null = null;
 
@@ -251,6 +253,17 @@ onMounted(() => {
     }
   });
 
+  removeAgentEventListener = window.api.harmlessAgent.onEvent((event) => {
+    if (event.type === 'terminal-output') {
+      if (event.sessionId === activeSessionId.value) {
+        terminal.write(event.content);
+      }
+      return;
+    }
+
+    store.ingestHarmlessAgentEvent(event);
+  });
+
   resizeObserver = new ResizeObserver(() => {
     syncTerminalSize();
   });
@@ -265,6 +278,7 @@ onBeforeUnmount(() => {
   removeLogDataListener?.();
   removeLogStatusListener?.();
   removeStatusListener?.();
+  removeAgentEventListener?.();
   removeTerminalInput?.dispose();
   resizeObserver?.disconnect();
   window.removeEventListener('click', handleGlobalClick);

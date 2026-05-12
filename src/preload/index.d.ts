@@ -121,6 +121,29 @@ type AgentStateSnapshot = {
   lastError: string;
 };
 
+type AgentRuntimeEvent =
+  | {
+      type: 'state';
+      sessionId: string;
+      snapshot: AgentStateSnapshot;
+    }
+  | {
+      type: 'message-upsert';
+      sessionId: string;
+      message: AgentThreadMessage;
+    }
+  | {
+      type: 'message-delta';
+      sessionId: string;
+      messageId: string;
+      delta: string;
+    }
+  | {
+      type: 'terminal-output';
+      sessionId: string;
+      content: string;
+    };
+
 type AgentWhitelistItem = {
   id: string;
   pattern: string;
@@ -196,9 +219,10 @@ type AppApi = {
     ) => Promise<AgentProviderSettings>;
   };
   harmlessAgent: {
-    getState: () => Promise<AgentStateSnapshot>;
-    run: (payload: { prompt: string }) => Promise<AgentStateSnapshot>;
+    getState: (sessionId: string) => Promise<AgentStateSnapshot>;
+    run: (payload: { sessionId: string; prompt: string }) => Promise<AgentStateSnapshot>;
     resolveApproval: (payload: {
+      sessionId: string;
       approvalId: string;
       approve: boolean;
     }) => Promise<AgentStateSnapshot>;
@@ -208,6 +232,7 @@ type AppApi = {
       description?: string;
     }) => Promise<AgentWhitelistItem>;
     deleteWhitelistItem: (id: string) => Promise<AgentWhitelistItem[]>;
+    onEvent: (listener: (event: AgentRuntimeEvent) => void) => () => void;
   };
   ssh: {
     connect: (payload: SshConnectPayload) => Promise<{ ok: true; remotePath: string }>;

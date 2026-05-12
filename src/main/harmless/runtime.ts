@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';
+import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import {
@@ -33,6 +34,7 @@ import type {
 } from '../shared/types';
 import { createAgentModel } from './model';
 import { assessCommandRisk, getRiskConfirmCount } from './risk';
+import { broadcastHarmlessAgentEvent } from './runtime-events';
 
 const SYSTEM_PROMPT = `
 You are cool-buddy, an operations-focused AI agent embedded in a terminal workbench.
@@ -92,6 +94,10 @@ function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+function normalizeTerminalOutput(content: string): string {
+  return content.replace(/\r?\n/g, '\r\n');
+}
+
 function globToRegExp(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
   return new RegExp(`^${escaped}$`, 'i');
@@ -120,6 +126,23 @@ function getMessageText(content: unknown): string {
   }
 
   return '';
+}
+
+function summarizeToolArgs(args: unknown): string {
+  try {
+    return JSON.stringify(args);
+  } catch {
+    return '[unserializable args]';
+  }
+}
+
+function summarizeToolResult(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return 'Completed with no output.';
+  }
+
+  return trimmed.length > 240 ? `${trimmed.slice(0, 240)}...` : trimmed;
 }
 
 function formatAgentError(error: unknown): string {
@@ -163,6 +186,17 @@ function createApprovalRequest(input: {
 }
 
 export class HarmlessAgentRuntime {
+  constructor(private readonly sessionId: string) {
+    this.toolDefinitions = this.createToolDefinitions();
+    this.modelTools = this.toolDefinitions.map((definition) =>
+      tool(async () => 'Handled by Harmless runtime.', {
+        name: definition.name,
+        description: definition.description,
+        schema: definition.schema
+      })
+    );
+  }
+
   private messageHistory: BaseMessage[] = [];
 
   private threadMessages: AgentThreadMessage[] = [];
@@ -176,17 +210,6 @@ export class HarmlessAgentRuntime {
   private readonly toolDefinitions: ToolDefinition[];
 
   private readonly modelTools;
-
-  constructor() {
-    this.toolDefinitions = this.createToolDefinitions();
-    this.modelTools = this.toolDefinitions.map((definition) =>
-      tool(async () => 'Handled by Harmless runtime.', {
-        name: definition.name,
-        description: definition.description,
-        schema: definition.schema
-      })
-    );
-  }
 
   getState(): AgentStateSnapshot {
     return this.createSnapshot();
@@ -209,6 +232,7 @@ export class HarmlessAgentRuntime {
     this.ensureSystemPrompt();
     this.messageHistory.push(new HumanMessage(prompt));
     this.appendThreadMessage('user', prompt);
+    this.broadcastState();
 
     try {
       await this.runAgentLoop(settings);
@@ -219,6 +243,7 @@ export class HarmlessAgentRuntime {
       if (!this.pendingExecution) {
         this.running = false;
       }
+      this.broadcastState();
     }
 
     return this.createSnapshot();
@@ -232,6 +257,7 @@ export class HarmlessAgentRuntime {
     const settings = this.ensureConfigured();
     this.running = true;
     this.lastError = '';
+    this.broadcastState();
 
     try {
       const pending = this.pendingExecution;
@@ -268,6 +294,7 @@ export class HarmlessAgentRuntime {
       if (!this.pendingExecution) {
         this.running = false;
       }
+      this.broadcastState();
     }
 
     return this.createSnapshot();
@@ -311,29 +338,122 @@ export class HarmlessAgentRuntime {
     };
   }
 
+  private broadcastState(): void {
+    broadcastHarmlessAgentEvent({
+      type: 'state',
+      sessionId: this.sessionId,
+      snapshot: this.createSnapshot()
+    });
+  }
+
+  private emitTerminalOutput(content: string): void {
+    if (!content) {
+      return;
+    }
+
+    broadcastHarmlessAgentEvent({
+      type: 'terminal-output',
+      sessionId: this.sessionId,
+      content: normalizeTerminalOutput(content)
+    });
+  }
+
   private appendThreadMessage(
     role: AgentThreadMessage['role'],
     content: string,
     toolName: string | null = null
-  ): void {
+  ): AgentThreadMessage | null {
     const trimmed = content.trim();
     if (!trimmed) {
-      return;
+      return null;
     }
 
-    this.threadMessages.push({
+    const message: AgentThreadMessage = {
       id: randomUUID(),
       role,
       content: trimmed,
       createdAt: new Date().toISOString(),
       toolName
+    };
+
+    this.threadMessages.push(message);
+    broadcastHarmlessAgentEvent({
+      sessionId: this.sessionId,
+      type: 'message-upsert',
+      message
     });
+    return message;
+  }
+
+  private createThreadMessage(
+    role: AgentThreadMessage['role'],
+    content: string,
+    toolName: string | null = null
+  ): AgentThreadMessage {
+    const message: AgentThreadMessage = {
+      id: randomUUID(),
+      role,
+      content,
+      createdAt: new Date().toISOString(),
+      toolName
+    };
+
+    this.threadMessages.push(message);
+    broadcastHarmlessAgentEvent({
+      sessionId: this.sessionId,
+      type: 'message-upsert',
+      message
+    });
+
+    return message;
+  }
+
+  private setThreadMessageContent(messageId: string, content: string): void {
+    const target = this.threadMessages.find((item) => item.id === messageId);
+    if (!target) {
+      return;
+    }
+
+    target.content = content;
+    broadcastHarmlessAgentEvent({
+      sessionId: this.sessionId,
+      type: 'message-upsert',
+      message: { ...target }
+    });
+  }
+
+  private appendThreadMessageDelta(messageId: string, delta: string): void {
+    if (!delta) {
+      return;
+    }
+
+    const target = this.threadMessages.find((item) => item.id === messageId);
+    if (!target) {
+      return;
+    }
+
+    target.content += delta;
+    broadcastHarmlessAgentEvent({
+      sessionId: this.sessionId,
+      type: 'message-delta',
+      messageId,
+      delta
+    });
+  }
+
+  private formatToolActivity(toolCall: ToolCallShape): string {
+    return `${toolCall.name} ${summarizeToolArgs(toolCall.args)}`;
   }
 
   private async runAgentLoop(settings: ReturnType<HarmlessAgentRuntime['ensureConfigured']>) {
     const baseModel = createAgentModel(settings) as {
       bindTools?: (tools: unknown[]) => {
-        invoke: (messages: BaseMessage[]) => Promise<AIMessage>;
+        invoke: (
+          messages: BaseMessage[],
+          options?: {
+            callbacks?: BaseCallbackHandler[];
+          }
+        ) => Promise<AIMessage>;
       };
     };
     const model = baseModel.bindTools?.(this.modelTools);
@@ -342,12 +462,35 @@ export class HarmlessAgentRuntime {
     }
 
     for (let turn = 0; turn < 8; turn += 1) {
-      const response = (await model.invoke(this.messageHistory)) as AIMessage;
+      let assistantMessageId: string | null = null;
+
+      const streamHandler = BaseCallbackHandler.fromMethods({
+        handleLLMNewToken: (token) => {
+          if (!token) {
+            return;
+          }
+
+          if (!assistantMessageId) {
+            assistantMessageId = this.createThreadMessage('assistant', '').id;
+          }
+
+          this.appendThreadMessageDelta(assistantMessageId, token);
+        }
+      }) as BaseCallbackHandler & { lc_prefer_streaming?: boolean };
+      streamHandler.lc_prefer_streaming = true;
+
+      const response = (await model.invoke(this.messageHistory, {
+        callbacks: [streamHandler]
+      })) as AIMessage;
       this.messageHistory.push(response);
 
       const responseText = getMessageText(response.content);
       if (responseText) {
-        this.appendThreadMessage('assistant', responseText);
+        if (!assistantMessageId) {
+          this.appendThreadMessage('assistant', responseText);
+        } else {
+          this.setThreadMessageContent(assistantMessageId, responseText);
+        }
       }
 
       const toolCalls = (response.tool_calls ?? []) as ToolCallShape[];
@@ -370,6 +513,14 @@ export class HarmlessAgentRuntime {
   private async processToolCalls(toolCalls: ToolCallShape[], startIndex: number): Promise<boolean> {
     for (let index = startIndex; index < toolCalls.length; index += 1) {
       const toolCall = toolCalls[index];
+      this.appendThreadMessage(
+        'system',
+        `Using ${this.formatToolActivity(toolCall)}`,
+        toolCall.name
+      );
+      this.emitTerminalOutput(
+        `\r\n[agent] ${toolCall.name}\r\n[agent] args: ${summarizeToolArgs(toolCall.args)}\r\n`
+      );
 
       try {
         const result = await this.invokeTool(toolCall, { approvalBypass: false });
@@ -380,6 +531,10 @@ export class HarmlessAgentRuntime {
             toolCalls,
             toolIndex: index
           };
+          this.emitTerminalOutput(
+            `[agent] waiting for ${result.approval.riskLevel.toUpperCase()} approval\r\n`
+          );
+          this.broadcastState();
           return true;
         }
 
@@ -390,6 +545,9 @@ export class HarmlessAgentRuntime {
           })
         );
         this.appendThreadMessage('tool', result.content, toolCall.name);
+        this.emitTerminalOutput(
+          `[agent] completed ${toolCall.name}\r\n[agent] result: ${summarizeToolResult(result.content)}\r\n`
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : `Tool ${toolCall.name} failed.`;
         this.messageHistory.push(
@@ -399,6 +557,7 @@ export class HarmlessAgentRuntime {
           })
         );
         this.appendThreadMessage('tool', message, toolCall.name);
+        this.emitTerminalOutput(`[agent] failed ${toolCall.name}: ${message}\r\n`);
       }
     }
 
@@ -457,9 +616,15 @@ export class HarmlessAgentRuntime {
           }
 
           let output = '';
+          this.emitTerminalOutput(`\r\n[agent] $ ${command}\r\n`);
           await sshExecStreaming(createCommandBatch(command), (chunk) => {
             output += chunk;
+            this.emitTerminalOutput(chunk);
           });
+
+          if (output && !/[\r\n]$/.test(output)) {
+            this.emitTerminalOutput('\r\n');
+          }
 
           return {
             type: 'completed',
@@ -669,4 +834,48 @@ export class HarmlessAgentRuntime {
   }
 }
 
-export const harmlessAgentRuntime = new HarmlessAgentRuntime();
+class HarmlessAgentRuntimeManager {
+  private readonly runtimes = new Map<string, HarmlessAgentRuntime>();
+
+  private getRuntime(sessionId: string): HarmlessAgentRuntime {
+    const trimmedSessionId = sessionId.trim();
+    if (!trimmedSessionId) {
+      throw new Error('A session must be selected before using the agent.');
+    }
+
+    let runtime = this.runtimes.get(trimmedSessionId);
+    if (!runtime) {
+      runtime = new HarmlessAgentRuntime(trimmedSessionId);
+      this.runtimes.set(trimmedSessionId, runtime);
+    }
+
+    return runtime;
+  }
+
+  getState(sessionId: string): AgentStateSnapshot {
+    return this.getRuntime(sessionId).getState();
+  }
+
+  run(payload: RunAgentPayload): Promise<AgentStateSnapshot> {
+    return this.getRuntime(payload.sessionId).run(payload);
+  }
+
+  resolveApproval(payload: ResolveAgentApprovalPayload): Promise<AgentStateSnapshot> {
+    return this.getRuntime(payload.sessionId).resolveApproval(payload);
+  }
+
+  listWhitelist(): AgentWhitelistItem[] {
+    return listAgentWhitelist();
+  }
+
+  createWhitelistItem(payload: SaveAgentWhitelistPayload): AgentWhitelistItem {
+    return createAgentWhitelistItem(payload);
+  }
+
+  deleteWhitelistItem(id: string): AgentWhitelistItem[] {
+    deleteAgentWhitelistItem(id);
+    return listAgentWhitelist();
+  }
+}
+
+export const harmlessAgentRuntime = new HarmlessAgentRuntimeManager();

@@ -159,11 +159,36 @@ export type AgentStateSnapshot = {
   lastError: string;
 };
 
+export type AgentRuntimeEvent =
+  | {
+      type: 'state';
+      sessionId: string;
+      snapshot: AgentStateSnapshot;
+    }
+  | {
+      type: 'message-upsert';
+      sessionId: string;
+      message: AgentThreadMessage;
+    }
+  | {
+      type: 'message-delta';
+      sessionId: string;
+      messageId: string;
+      delta: string;
+    }
+  | {
+      type: 'terminal-output';
+      sessionId: string;
+      content: string;
+    };
+
 export type RunAgentPayload = {
+  sessionId: string;
   prompt: string;
 };
 
 export type ResolveAgentApprovalPayload = {
+  sessionId: string;
   approvalId: string;
   approve: boolean;
 };

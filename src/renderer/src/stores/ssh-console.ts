@@ -8,6 +8,7 @@ import type {
   AgentProviderCode,
   AgentProviderOption,
   AgentProviderSettings,
+  AgentRuntimeEvent,
   AgentStateSnapshot,
   AgentThreadMessage,
   ConnectionForm,
@@ -426,6 +427,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   function resetActiveSession() {
     activeSessionId.value = '';
     form.value = createDefaultForm();
+    agentRuntime.value = createDefaultAgentStateSnapshot();
     status.value = 'idle';
     statusMessage.value = t('ready');
   }
@@ -442,6 +444,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     if (options?.openTab !== false) {
       ensureTabOpen(session.id);
     }
+
+    void loadHarmlessAgentState();
   }
 
   function openTabMenuAt(payload: TabMenuState) {
@@ -584,7 +588,12 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   }
 
   async function loadHarmlessAgentState() {
-    agentRuntime.value = await window.api.harmlessAgent.getState();
+    if (!activeSessionId.value) {
+      agentRuntime.value = createDefaultAgentStateSnapshot();
+      return agentRuntime.value;
+    }
+
+    agentRuntime.value = await window.api.harmlessAgent.getState(activeSessionId.value);
     return agentRuntime.value;
   }
 
@@ -620,18 +629,79 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
   async function runHarmlessAgentPrompt() {
     const prompt = aiInput.value.trim();
-    if (!prompt || agentRuntime.value.running) {
+    if (!prompt || agentRuntime.value.running || !activeSessionId.value) {
       return agentRuntime.value;
     }
 
     aiInput.value = '';
-    agentRuntime.value = await window.api.harmlessAgent.run({ prompt });
+    agentRuntime.value = await window.api.harmlessAgent.run({
+      sessionId: activeSessionId.value,
+      prompt
+    });
     return agentRuntime.value;
   }
 
   async function resolveHarmlessAgentApproval(payload: { approvalId: string; approve: boolean }) {
-    agentRuntime.value = await window.api.harmlessAgent.resolveApproval(payload);
+    if (!activeSessionId.value) {
+      return agentRuntime.value;
+    }
+
+    agentRuntime.value = await window.api.harmlessAgent.resolveApproval({
+      sessionId: activeSessionId.value,
+      ...payload
+    });
     return agentRuntime.value;
+  }
+
+  function upsertAgentMessage(message: AgentThreadMessage) {
+    const existingIndex = agentRuntime.value.messages.findIndex((item) => item.id === message.id);
+    if (existingIndex >= 0) {
+      agentRuntime.value = {
+        ...agentRuntime.value,
+        messages: agentRuntime.value.messages.map((item, index) =>
+          index === existingIndex ? message : item
+        )
+      };
+      return;
+    }
+
+    agentRuntime.value = {
+      ...agentRuntime.value,
+      messages: [...agentRuntime.value.messages, message]
+    };
+  }
+
+  function appendAgentMessageDelta(messageId: string, delta: string) {
+    if (!delta) {
+      return;
+    }
+
+    agentRuntime.value = {
+      ...agentRuntime.value,
+      messages: agentRuntime.value.messages.map((message) =>
+        message.id === messageId ? { ...message, content: `${message.content}${delta}` } : message
+      )
+    };
+  }
+
+  function ingestHarmlessAgentEvent(event: AgentRuntimeEvent) {
+    if (event.sessionId !== activeSessionId.value) {
+      return;
+    }
+
+    if (event.type === 'state') {
+      agentRuntime.value = event.snapshot;
+      return;
+    }
+
+    if (event.type === 'message-upsert') {
+      upsertAgentMessage(event.message);
+      return;
+    }
+
+    if (event.type === 'message-delta') {
+      appendAgentMessageDelta(event.messageId, event.delta);
+    }
   }
 
   function openSessionModal() {
@@ -1245,6 +1315,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     canSaveSession,
     canSaveAgentSettings,
     hasAgentProviderConfigured,
+    ingestHarmlessAgentEvent,
     closeSessionModal,
     closeAgentSettingsModal,
     closeTabMenu,

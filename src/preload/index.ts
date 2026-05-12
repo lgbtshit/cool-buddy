@@ -122,6 +122,29 @@ type AgentStateSnapshot = {
   lastError: string;
 };
 
+type AgentRuntimeEvent =
+  | {
+      type: 'state';
+      sessionId: string;
+      snapshot: AgentStateSnapshot;
+    }
+  | {
+      type: 'message-upsert';
+      sessionId: string;
+      message: AgentThreadMessage;
+    }
+  | {
+      type: 'message-delta';
+      sessionId: string;
+      messageId: string;
+      delta: string;
+    }
+  | {
+      type: 'terminal-output';
+      sessionId: string;
+      content: string;
+    };
+
 type AgentWhitelistItem = {
   id: string;
   pattern: string;
@@ -200,10 +223,12 @@ const api = {
     ): Promise<AgentProviderSettings> => ipcRenderer.invoke('agent-settings:save-provider', payload)
   },
   harmlessAgent: {
-    getState: (): Promise<AgentStateSnapshot> => ipcRenderer.invoke('harmless-agent:get-state'),
-    run: (payload: { prompt: string }): Promise<AgentStateSnapshot> =>
+    getState: (sessionId: string): Promise<AgentStateSnapshot> =>
+      ipcRenderer.invoke('harmless-agent:get-state', sessionId),
+    run: (payload: { sessionId: string; prompt: string }): Promise<AgentStateSnapshot> =>
       ipcRenderer.invoke('harmless-agent:run', payload),
     resolveApproval: (payload: {
+      sessionId: string;
       approvalId: string;
       approve: boolean;
     }): Promise<AgentStateSnapshot> =>
@@ -216,7 +241,13 @@ const api = {
     }): Promise<AgentWhitelistItem> =>
       ipcRenderer.invoke('harmless-agent:create-whitelist-item', payload),
     deleteWhitelistItem: (id: string): Promise<AgentWhitelistItem[]> =>
-      ipcRenderer.invoke('harmless-agent:delete-whitelist-item', id)
+      ipcRenderer.invoke('harmless-agent:delete-whitelist-item', id),
+    onEvent: (listener: (event: AgentRuntimeEvent) => void) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, payload: AgentRuntimeEvent) =>
+        listener(payload);
+      ipcRenderer.on('harmless-agent:event', wrapped);
+      return () => ipcRenderer.removeListener('harmless-agent:event', wrapped);
+    }
   },
   ssh: {
     connect: (payload: SshConnectPayload): Promise<{ ok: true; remotePath: string }> =>
