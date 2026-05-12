@@ -65,7 +65,7 @@ defineExpose({
   :deep(.xterm) {
     height: 100%;
     padding: 10px 12px;
-    font-family: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+    font-family: 'JetBrains Mono', monospace;
     letter-spacing: 0;
     word-spacing: 0;
     font-kerning: none;

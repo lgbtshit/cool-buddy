@@ -282,7 +282,7 @@ watch(
   border-radius: 4px;
   background: rgba(14, 14, 17, 0.88);
   color: rgba(228, 225, 230, 0.88);
-  font-family: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   line-height: 1.55;
   white-space: pre-wrap;

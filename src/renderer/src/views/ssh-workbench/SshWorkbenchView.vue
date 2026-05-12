@@ -44,7 +44,7 @@ const pendingPasteContent = ref('');
 
 const terminal = new Terminal({
   cursorBlink: true,
-  fontFamily: '"JetBrains Mono", "Cascadia Mono", "Consolas", monospace',
+  fontFamily: '"JetBrains Mono", monospace',
   fontSize: 12,
   lineHeight: 1.2,
   letterSpacing: 0,
