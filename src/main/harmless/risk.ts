@@ -14,7 +14,7 @@ const P0_PATTERNS: RegExp[] = [
   /\bdocker\s+(stop|rm|rmi)\b/i,
   /\bdocker\s+compose\s+(down|rm|stop|restart)\b/i,
   /\b(killall|pkill|kill\s+-9)\b/i,
-  /\b(usermod|usermod|passwd|chpasswd)\b/i,
+  /\b(usermod|passwd|chpasswd)\b/i,
   /\b(chown|chmod)\b.*\s\/(etc|usr|var|boot|root)\b/i,
   /\b(iptables|ufw|firewall-cmd)\b/i
 ];

@@ -221,38 +221,24 @@ async function rejectPendingAction() {
           :compact="true"
           :description="
             agentRuntime.running
-              ? 'Harmless is preparing the first tool pass.'
+              ? 'Agent is preparing the first tool pass.'
               : 'Ask for a diagnosis, metrics summary, service check, log read, or remote file operation.'
           "
           :icon="Bot"
-          title="Harmless is ready"
+          title="Agent is ready"
         />
       </section>
 
       <section class="agent-actions">
         <div class="chip-row">
-          <button
-            @click="store.setAiInput('Check current system metrics and summarize the host health.')"
-          >
-            Host Health
+          <button @click="store.setAiInput(t('agentQuickHostHealthPrompt'))">
+            {{ t('agentQuickHostHealth') }}
           </button>
-          <button
-            @click="
-              store.setAiInput(
-                'Inspect running services and containers, then summarize any obvious concerns.'
-              )
-            "
-          >
-            Running Apps
+          <button @click="store.setAiInput(t('agentQuickRunningAppsPrompt'))">
+            {{ t('agentQuickRunningApps') }}
           </button>
-          <button
-            @click="
-              store.setAiInput(
-                'Read the latest 80 lines from a useful application log and summarize anomalies.'
-              )
-            "
-          >
-            Check Logs
+          <button @click="store.setAiInput(t('agentQuickCheckLogsPrompt'))">
+            {{ t('agentQuickCheckLogs') }}
           </button>
         </div>
 

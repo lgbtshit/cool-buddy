@@ -62,6 +62,15 @@ export const messages = {
     restartService: '\u91cd\u542f\u670d\u52a1',
     checkLogs: '\u68c0\u67e5\u65e5\u5fd7',
     auditPermissions: '\u5ba1\u8ba1\u6743\u9650',
+    agentQuickHostHealth: '\u4e3b\u673a\u5065\u5eb7',
+    agentQuickRunningApps: '\u8fd0\u884c\u4e2d\u5e94\u7528',
+    agentQuickCheckLogs: '\u68c0\u67e5\u65e5\u5fd7',
+    agentQuickHostHealthPrompt:
+      '\u68c0\u67e5\u5f53\u524d\u7cfb\u7edf\u6307\u6807\uff0c\u5e76\u603b\u7ed3\u8fd9\u53f0\u4e3b\u673a\u7684\u5065\u5eb7\u72b6\u51b5\u3002',
+    agentQuickRunningAppsPrompt:
+      '\u68c0\u67e5\u6b63\u5728\u8fd0\u884c\u7684\u670d\u52a1\u4e0e\u5bb9\u5668\uff0c\u5e76\u603b\u7ed3\u662f\u5426\u5b58\u5728\u660e\u663e\u95ee\u9898\u3002',
+    agentQuickCheckLogsPrompt:
+      '\u8bfb\u53d6\u4e00\u4e2a\u6709\u4ef7\u503c\u7684\u5e94\u7528\u65e5\u5fd7\u6700\u65b0 80 \u884c\uff0c\u5e76\u603b\u7ed3\u5f02\u5e38\u70b9\u3002',
     keyBindings: '\u5feb\u6377\u952e',
     keyBindingsHint:
       '\u4e0b\u9762\u662f\u5f53\u524d\u7ec8\u7aef\u5de5\u4f5c\u53f0\u652f\u6301\u7684\u5e38\u7528\u5feb\u6377\u952e\u793a\u4f8b\u3002',
@@ -203,6 +212,14 @@ export const messages = {
     restartService: 'Restart Service',
     checkLogs: 'Check Logs',
     auditPermissions: 'Audit Permissions',
+    agentQuickHostHealth: 'Host Health',
+    agentQuickRunningApps: 'Running Apps',
+    agentQuickCheckLogs: 'Check Logs',
+    agentQuickHostHealthPrompt: 'Check current system metrics and summarize the host health.',
+    agentQuickRunningAppsPrompt:
+      'Inspect running services and containers, then summarize any obvious concerns.',
+    agentQuickCheckLogsPrompt:
+      'Read the latest 80 lines from a useful application log and summarize anomalies.',
     keyBindings: 'Key Bindings',
     keyBindingsHint:
       'Examples of the keyboard shortcuts currently supported in this terminal workspace.',
