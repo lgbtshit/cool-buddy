@@ -67,6 +67,30 @@ export const messages = {
       '\u4e0b\u9762\u662f\u5f53\u524d\u7ec8\u7aef\u5de5\u4f5c\u53f0\u652f\u6301\u7684\u5e38\u7528\u5feb\u6377\u952e\u793a\u4f8b\u3002',
     quickActions: '\u5feb\u6377\u64cd\u4f5c',
     terminalSettings: '\u7ec8\u7aef\u8bbe\u7f6e',
+    agentSettingsTitle: 'Agent \u8bbe\u7f6e',
+    agentSettingsHint:
+      '\u5148\u914d\u7f6e\u5927\u6a21\u578b\u5382\u5546\u3001URL \u4e0e Key\uff0c\u540e\u7eed\u518d\u628a AI Agent \u8fde\u63a5\u8fdb\u6765\u3002',
+    agentSettingsCategoryProvider: '\u5927\u6a21\u578b\u5382\u5546',
+    agentProviderLabel: '\u5382\u5546',
+    agentProviderUrlLabel: 'Base URL',
+    agentProviderKeyLabel: 'API Key',
+    agentProviderModelLabel: '模型',
+    agentProviderModelPlaceholder: '输入模型名，或先点击加载模型',
+    agentProviderLoadModels: '加载模型',
+    agentProviderModelsHint:
+      '会直接请求当前厂商的模型列表接口；如果兼容服务没实现，也可以手动填写模型名。',
+    agentProviderUrlPlaceholder: '\u8f93\u5165\u5382\u5546 API \u5730\u5740',
+    agentProviderKeyPlaceholder: '\u8f93\u5165 API Key \u6216 Token',
+    agentProviderHint:
+      '\u5df2\u9884\u7f6e\u5e38\u89c1\u5382\u5546\u7684\u9ed8\u8ba4\u5730\u5740\uff0c\u5207\u6362\u5382\u5546\u540e\u53ef\u518d\u624b\u52a8\u4fee\u6539\u3002',
+    agentCodexHint:
+      'Codex \u8ba2\u9605\u5171\u4eab Token \u76ee\u524d\u4e0d\u4f1a\u81ea\u52a8\u8bfb\u53d6\uff1b\u5982\u679c\u4f60\u624b\u4e0a\u6709\u53ef\u590d\u7528\u7684 URL \u548c Key\uff0c\u53ef\u4ee5\u76f4\u63a5\u586b\u5728\u8fd9\u91cc\u3002',
+    agentSettingsSave: '\u4fdd\u5b58\u914d\u7f6e',
+    agentSettingsSavedAt: '\u4e0a\u6b21\u66f4\u65b0',
+    agentEmptyTitle: '\u8fd8\u6ca1\u6709\u914d\u7f6e AI \u6a21\u578b',
+    agentEmptyDescription:
+      '\u5148\u5728\u7ec8\u7aef\u8bbe\u7f6e\u91cc\u914d\u597d\u5927\u6a21\u578b\u5382\u5546\u3001Base URL \u548c API Key\uff0c\u8fd9\u91cc\u624d\u4f1a\u663e\u793a Agent \u9762\u677f\u548c\u5feb\u6377\u64cd\u4f5c\u3002',
+    openTerminalSettings: '\u6253\u5f00\u7ec8\u7aef\u8bbe\u7f6e',
     connected: '\u5df2\u8fde\u63a5',
     latency: '\u5ef6\u8fdf',
     ready: '\u51c6\u5907\u8fde\u63a5\u3002',
@@ -184,6 +208,30 @@ export const messages = {
       'Examples of the keyboard shortcuts currently supported in this terminal workspace.',
     quickActions: 'Quick Actions',
     terminalSettings: 'Terminal Settings',
+    agentSettingsTitle: 'Agent Settings',
+    agentSettingsHint:
+      'Configure the model provider, URL, and key first, then wire the AI agent to it next.',
+    agentSettingsCategoryProvider: 'Model Provider',
+    agentProviderLabel: 'Provider',
+    agentProviderUrlLabel: 'Base URL',
+    agentProviderKeyLabel: 'API Key',
+    agentProviderModelLabel: 'Model',
+    agentProviderModelPlaceholder: 'Enter a model name, or load the provider list first',
+    agentProviderLoadModels: 'Load Models',
+    agentProviderModelsHint:
+      'This calls the provider model-list API directly. If a compatible service does not implement it, you can still enter a model manually.',
+    agentProviderUrlPlaceholder: 'Enter the provider API URL',
+    agentProviderKeyPlaceholder: 'Enter the API key or token',
+    agentProviderHint:
+      'Common provider endpoints are prefilled. You can still edit the URL after switching.',
+    agentCodexHint:
+      'Codex subscription tokens are not auto-read here right now. If you have a reusable URL and key, enter them manually.',
+    agentSettingsSave: 'Save Settings',
+    agentSettingsSavedAt: 'Last updated',
+    agentEmptyTitle: 'No AI model configured yet',
+    agentEmptyDescription:
+      'Set the provider, base URL, and API key in Terminal Settings first. The agent panel and quick actions will appear here after that.',
+    openTerminalSettings: 'Open Terminal Settings',
     connected: 'Connected',
     latency: 'Latency',
     ready: 'Ready to connect.',

@@ -3,6 +3,13 @@ import { defineStore } from 'pinia';
 import { messages, type MessageKey } from '../i18n';
 import { httpClient } from '../lib/http-client';
 import type {
+  AgentApprovalRequest,
+  AgentModelOption,
+  AgentProviderCode,
+  AgentProviderOption,
+  AgentProviderSettings,
+  AgentStateSnapshot,
+  AgentThreadMessage,
   ConnectionForm,
   ConnectionState,
   LiveSystemMetrics,
@@ -23,6 +30,184 @@ const LIVE_METRICS_REFRESH_INTERVAL_MS = 2000;
 const FULL_METRICS_REFRESH_INTERVAL_MS = 15000;
 const LATENCY_REFRESH_INTERVAL_MS = 5000;
 
+const AGENT_PROVIDER_PRESETS: AgentProviderOption[] = [
+  {
+    code: 'openai',
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    description: 'OpenAI API, suitable for GPT and compatible agent access.'
+  },
+  {
+    code: 'azure-openai',
+    name: 'Azure OpenAI',
+    baseUrl: 'https://{resource-name}.openai.azure.com/openai',
+    description: 'Azure-hosted OpenAI endpoint.'
+  },
+  {
+    code: 'anthropic',
+    name: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    description: 'Claude and Anthropic-hosted models.'
+  },
+  {
+    code: 'google-gemini',
+    name: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    description: 'Google Gemini API endpoint.'
+  },
+  {
+    code: 'deepseek',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com',
+    description: 'DeepSeek official endpoint.'
+  },
+  {
+    code: 'qwen',
+    name: 'Qwen / DashScope',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    description: 'Alibaba Cloud DashScope compatible endpoint.'
+  },
+  {
+    code: 'zhipu',
+    name: 'Zhipu GLM',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    description: 'Zhipu BigModel GLM endpoint.'
+  },
+  {
+    code: 'moonshot',
+    name: 'Moonshot',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    description: 'Moonshot / Kimi compatible endpoint.'
+  },
+  {
+    code: 'baidu-qianfan',
+    name: 'Baidu Qianfan',
+    baseUrl: 'https://qianfan.baidubce.com/v2',
+    description: 'Baidu Qianfan model service.'
+  },
+  {
+    code: 'siliconflow',
+    name: 'SiliconFlow',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    description: 'SiliconFlow OpenAI-compatible endpoint.'
+  },
+  {
+    code: 'groq',
+    name: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    description: 'Groq OpenAI-compatible endpoint.'
+  },
+  {
+    code: 'mistral',
+    name: 'Mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    description: 'Mistral API endpoint.'
+  },
+  {
+    code: 'openrouter',
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    description: 'Unified routing across multiple providers.'
+  },
+  {
+    code: 'ollama',
+    name: 'Ollama',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    description: 'Local Ollama OpenAI-compatible endpoint.'
+  },
+  {
+    code: 'lm-studio',
+    name: 'LM Studio',
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    description: 'Local LM Studio OpenAI-compatible endpoint.'
+  },
+  {
+    code: 'xai',
+    name: 'xAI',
+    baseUrl: 'https://api.x.ai/v1',
+    description: 'xAI official endpoint.'
+  },
+  {
+    code: 'perplexity',
+    name: 'Perplexity',
+    baseUrl: 'https://api.perplexity.ai',
+    description: 'Perplexity API endpoint.'
+  },
+  {
+    code: 'fireworks',
+    name: 'Fireworks',
+    baseUrl: 'https://api.fireworks.ai/inference/v1',
+    description: 'Fireworks inference endpoint.'
+  },
+  {
+    code: 'together',
+    name: 'Together AI',
+    baseUrl: 'https://api.together.xyz/v1',
+    description: 'Together AI compatible endpoint.'
+  },
+  {
+    code: 'volcengine-ark',
+    name: 'Volcengine Ark',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    description: 'Volcengine Ark service endpoint.'
+  },
+  {
+    code: 'tencent-hunyuan',
+    name: 'Tencent Hunyuan',
+    baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1',
+    description: 'Tencent Hunyuan API endpoint.'
+  },
+  {
+    code: 'minimax',
+    name: 'MiniMax',
+    baseUrl: 'https://api.minimaxi.com/v1',
+    description: 'MiniMax official endpoint.'
+  },
+  {
+    code: '302ai',
+    name: '302.AI',
+    baseUrl: 'https://api.302.ai/v1',
+    description: '302.AI OpenAI-compatible endpoint.'
+  },
+  {
+    code: 'custom',
+    name: 'Custom',
+    baseUrl: '',
+    description: 'Any custom or OpenAI-compatible endpoint.'
+  }
+];
+
+const DEFAULT_MODEL_BY_PROVIDER: Record<AgentProviderCode, string> = {
+  openai: 'gpt-4.1-mini',
+  'azure-openai': 'gpt-4.1-mini',
+  anthropic: 'claude-3-5-sonnet-latest',
+  'google-gemini': 'gemini-2.5-flash',
+  deepseek: 'deepseek-chat',
+  qwen: 'qwen-plus',
+  zhipu: 'glm-4-flash',
+  moonshot: 'moonshot-v1-8k',
+  'baidu-qianfan': 'ernie-4.0-8k',
+  siliconflow: 'deepseek-ai/DeepSeek-V3',
+  groq: 'llama-3.3-70b-versatile',
+  mistral: 'mistral-large-latest',
+  openrouter: 'openai/gpt-4.1-mini',
+  ollama: 'qwen2.5:7b',
+  'lm-studio': 'local-model',
+  xai: 'grok-3-mini',
+  perplexity: 'sonar',
+  fireworks: 'accounts/fireworks/models/llama-v3p3-70b-instruct',
+  together: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+  'volcengine-ark': 'doubao-seed-1-6-flash-250715',
+  'tencent-hunyuan': 'hunyuan-lite',
+  minimax: 'MiniMax-Text-01',
+  '302ai': 'gpt-4.1-mini',
+  custom: 'gpt-4.1-mini'
+};
+
+function getDefaultAgentModelName(providerCode: AgentProviderCode): string {
+  return DEFAULT_MODEL_BY_PROVIDER[providerCode] ?? DEFAULT_MODEL_BY_PROVIDER.custom;
+}
+
 function createDefaultForm(): ConnectionForm {
   return {
     host: '',
@@ -41,6 +226,32 @@ function createDefaultSessionDraft(): SessionDraft {
     username: '',
     password: ''
   };
+}
+
+function createDefaultAgentProviderSettings(): AgentProviderSettings {
+  const preset = AGENT_PROVIDER_PRESETS[0];
+  return {
+    providerCode: preset.code,
+    providerName: preset.name,
+    baseUrl: preset.baseUrl,
+    apiKey: '',
+    modelName: getDefaultAgentModelName(preset.code),
+    updatedAt: null
+  };
+}
+
+function createDefaultAgentStateSnapshot(): AgentStateSnapshot {
+  return {
+    messages: [],
+    pendingApproval: null,
+    running: false,
+    configured: false,
+    lastError: ''
+  };
+}
+
+function getAgentProviderPreset(code: AgentProviderCode): AgentProviderOption {
+  return AGENT_PROVIDER_PRESETS.find((item) => item.code === code) ?? AGENT_PROVIDER_PRESETS[0];
 }
 
 function sortRemoteEntries(entries: RemoteEntry[]): RemoteEntry[] {
@@ -63,6 +274,15 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const statusMessage = ref<string>(messages['zh-CN'].ready);
   const latencyMs = ref<number | null>(null);
   const aiInput = ref('');
+  const agentRuntime = ref<AgentStateSnapshot>(createDefaultAgentStateSnapshot());
+  const agentModelOptions = ref<AgentModelOption[]>([]);
+  const agentModelsLoading = ref(false);
+  const agentSettingsOpen = ref(false);
+  const agentSettingsLoading = ref(false);
+  const agentSettingsSaving = ref(false);
+  const agentSettingsLoaded = ref(false);
+  const agentSettingsError = ref('');
+  const agentSettings = ref<AgentProviderSettings>(createDefaultAgentProviderSettings());
   const sessionsLoaded = ref(false);
   const sessionModalOpen = ref(false);
   const tabMenu = ref<TabMenuState | null>(null);
@@ -107,6 +327,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     { key: 'local' as SessionGroup, label: t('local') }
   ]);
 
+  const agentProviderOptions = computed(() => AGENT_PROVIDER_PRESETS);
+
   const activeSession = computed(() => {
     return sessions.value.find((item) => item.id === activeSessionId.value) ?? null;
   });
@@ -137,6 +359,23 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       sessionDraft.value.port
     );
   });
+
+  const canSaveAgentSettings = computed(() => {
+    return Boolean(
+      agentSettings.value.providerName.trim() &&
+      agentSettings.value.baseUrl.trim() &&
+      agentSettings.value.modelName.trim()
+    );
+  });
+
+  const hasAgentProviderConfigured = computed(() => {
+    return agentRuntime.value.configured;
+  });
+
+  const agentMessages = computed<AgentThreadMessage[]>(() => agentRuntime.value.messages);
+  const pendingAgentApproval = computed<AgentApprovalRequest | null>(
+    () => agentRuntime.value.pendingApproval
+  );
 
   const isConnected = computed(() => status.value === 'connected');
   const canStartLogTail = computed(() => {
@@ -244,6 +483,155 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
   function resetSessionDraft() {
     sessionDraft.value = createDefaultSessionDraft();
+  }
+
+  function applyAgentProviderCode(providerCode: AgentProviderCode) {
+    const preset = getAgentProviderPreset(providerCode);
+    agentSettings.value = {
+      ...agentSettings.value,
+      providerCode: preset.code,
+      providerName: preset.name,
+      baseUrl: preset.baseUrl || agentSettings.value.baseUrl,
+      modelName: getDefaultAgentModelName(preset.code)
+    };
+    agentModelOptions.value = [];
+  }
+
+  async function loadAgentSettings(options?: { force?: boolean }) {
+    if (agentSettingsLoading.value || (agentSettingsLoaded.value && !options?.force)) {
+      return;
+    }
+
+    agentSettingsLoading.value = true;
+    agentSettingsError.value = '';
+
+    try {
+      agentSettings.value = await window.api.agentSettings.getProvider();
+      agentSettingsLoaded.value = true;
+      await loadHarmlessAgentState();
+    } catch (error) {
+      agentSettingsError.value =
+        error instanceof Error ? error.message : 'Failed to load agent settings.';
+    } finally {
+      agentSettingsLoading.value = false;
+    }
+  }
+
+  async function openAgentSettingsModal() {
+    agentSettingsOpen.value = true;
+    await loadAgentSettings();
+  }
+
+  function closeAgentSettingsModal() {
+    agentSettingsOpen.value = false;
+    agentSettingsError.value = '';
+  }
+
+  function updateAgentBaseUrl(value: string) {
+    agentSettings.value = {
+      ...agentSettings.value,
+      baseUrl: value
+    };
+  }
+
+  function updateAgentApiKey(value: string) {
+    agentSettings.value = {
+      ...agentSettings.value,
+      apiKey: value
+    };
+  }
+
+  function updateAgentModelName(value: string) {
+    agentSettings.value = {
+      ...agentSettings.value,
+      modelName: value
+    };
+  }
+
+  async function loadProviderModels() {
+    if (agentModelsLoading.value) {
+      return agentModelOptions.value;
+    }
+
+    agentModelsLoading.value = true;
+    agentSettingsError.value = '';
+
+    try {
+      const models = await window.api.agentSettings.listModels({
+        providerCode: agentSettings.value.providerCode,
+        providerName: agentSettings.value.providerName,
+        baseUrl: agentSettings.value.baseUrl.trim(),
+        apiKey: agentSettings.value.apiKey.trim()
+      });
+      agentModelOptions.value = models;
+      if (
+        models.length > 0 &&
+        !models.some((item) => item.id === agentSettings.value.modelName.trim())
+      ) {
+        agentSettings.value = {
+          ...agentSettings.value,
+          modelName: models[0].id
+        };
+      }
+      return models;
+    } catch (error) {
+      agentSettingsError.value =
+        error instanceof Error ? error.message : 'Failed to load provider models.';
+      return [];
+    } finally {
+      agentModelsLoading.value = false;
+    }
+  }
+
+  async function loadHarmlessAgentState() {
+    agentRuntime.value = await window.api.harmlessAgent.getState();
+    return agentRuntime.value;
+  }
+
+  async function saveAgentSettings() {
+    if (!canSaveAgentSettings.value || agentSettingsSaving.value) {
+      return null;
+    }
+
+    agentSettingsSaving.value = true;
+    agentSettingsError.value = '';
+
+    try {
+      const saved = await window.api.agentSettings.saveProvider({
+        providerCode: agentSettings.value.providerCode,
+        providerName: agentSettings.value.providerName,
+        baseUrl: agentSettings.value.baseUrl.trim(),
+        apiKey: agentSettings.value.apiKey.trim(),
+        modelName: agentSettings.value.modelName.trim()
+      });
+      agentSettings.value = saved;
+      agentSettingsLoaded.value = true;
+      agentSettingsOpen.value = false;
+      await loadHarmlessAgentState();
+      return saved;
+    } catch (error) {
+      agentSettingsError.value =
+        error instanceof Error ? error.message : 'Failed to save agent settings.';
+      return null;
+    } finally {
+      agentSettingsSaving.value = false;
+    }
+  }
+
+  async function runHarmlessAgentPrompt() {
+    const prompt = aiInput.value.trim();
+    if (!prompt || agentRuntime.value.running) {
+      return agentRuntime.value;
+    }
+
+    aiInput.value = '';
+    agentRuntime.value = await window.api.harmlessAgent.run({ prompt });
+    return agentRuntime.value;
+  }
+
+  async function resolveHarmlessAgentApproval(payload: { approvalId: string; approve: boolean }) {
+    agentRuntime.value = await window.api.harmlessAgent.resolveApproval(payload);
+    return agentRuntime.value;
   }
 
   function openSessionModal() {
@@ -842,8 +1230,23 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     activeSession,
     activeSessionId,
     aiInput,
+    agentMessages,
+    agentModelOptions,
+    agentModelsLoading,
+    agentProviderOptions,
+    agentRuntime,
+    agentSettings,
+    agentSettingsError,
+    agentSettingsLoaded,
+    agentSettingsLoading,
+    agentSettingsOpen,
+    agentSettingsSaving,
+    applyAgentProviderCode,
     canSaveSession,
+    canSaveAgentSettings,
+    hasAgentProviderConfigured,
     closeSessionModal,
+    closeAgentSettingsModal,
     closeTabMenu,
     connect,
     connectToSession,
@@ -861,8 +1264,11 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     canStartLogTail,
     latencyLabel,
     latencyMs,
+    loadHarmlessAgentState,
+    loadProviderModels,
     loadLiveMetrics,
     loadLatency,
+    loadAgentSettings,
     loadRemoteApps,
     loadSystemMetrics,
     loadSessions,
@@ -876,18 +1282,23 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     logTailStatusMessage,
     metricsLoading,
     openRemoteEntry,
+    openAgentSettingsModal,
     openSessionModal,
     openTabIds,
     openTabMenuAt,
     openTabs,
+    pendingAgentApproval,
     removeTab,
     remoteApps,
     remoteAppsError,
     remoteAppsLoading,
     remoteDirectory,
     remotePreview,
+    resolveHarmlessAgentApproval,
     renameRemoteEntry,
+    runHarmlessAgentPrompt,
     saveSession,
+    saveAgentSettings,
     searchQuery,
     selectSession,
     setLogTailPath,
@@ -914,6 +1325,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     stopLogTail,
     toggleHiddenFiles,
     toggleLocale,
+    updateAgentApiKey,
+    updateAgentBaseUrl,
+    updateAgentModelName,
     uploadRemoteFiles,
     isConnected
   };

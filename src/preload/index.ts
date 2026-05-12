@@ -1,111 +1,222 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer } from 'electron';
+import { electronAPI } from '@electron-toolkit/preload';
 
 type SshConnectPayload = {
-  host: string
-  port: number
-  username: string
-  password: string
-}
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+};
 
 type SshCommandBatchPayload = {
-  content: string
-}
+  content: string;
+};
 
 type SshLogTailPayload = {
-  path: string
-  lineCount: number
-}
+  path: string;
+  lineCount: number;
+};
 
 type SshStatusPayload = {
-  status: 'connecting' | 'connected' | 'disconnected' | 'error'
-  message: string
-}
+  status: 'connecting' | 'connected' | 'disconnected' | 'error';
+  message: string;
+};
 
 type SshLogStatusPayload = {
-  status: 'idle' | 'running' | 'error'
-  path: string
-  message: string
-}
+  status: 'idle' | 'running' | 'error';
+  path: string;
+  message: string;
+};
 
-type SessionGroup = 'production' | 'staging' | 'local'
+type SessionGroup = 'production' | 'staging' | 'local';
 
 type SessionItem = {
-  id: string
-  name: string
-  group: SessionGroup
-  host: string
-  port: number
-  username: string
-  password: string
-  status: 'online' | 'warning' | 'offline'
-  icon: 'server' | 'database' | 'hardDrive'
-}
+  id: string;
+  name: string;
+  group: SessionGroup;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  status: 'online' | 'warning' | 'offline';
+  icon: 'server' | 'database' | 'hardDrive';
+};
 
 type CreateSessionPayload = {
-  name: string
-  group: SessionGroup
-  host: string
-  port: number
-  username: string
-  password: string
-}
+  name: string;
+  group: SessionGroup;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+};
+
+type AgentProviderCode =
+  | 'openai'
+  | 'azure-openai'
+  | 'anthropic'
+  | 'google-gemini'
+  | 'deepseek'
+  | 'qwen'
+  | 'zhipu'
+  | 'moonshot'
+  | 'baidu-qianfan'
+  | 'siliconflow'
+  | 'groq'
+  | 'mistral'
+  | 'openrouter'
+  | 'ollama'
+  | 'lm-studio'
+  | 'xai'
+  | 'perplexity'
+  | 'fireworks'
+  | 'together'
+  | 'volcengine-ark'
+  | 'tencent-hunyuan'
+  | 'minimax'
+  | '302ai'
+  | 'custom';
+
+type AgentProviderSettings = {
+  providerCode: AgentProviderCode;
+  providerName: string;
+  baseUrl: string;
+  apiKey: string;
+  modelName: string;
+  updatedAt: string | null;
+};
+
+type AgentModelOption = {
+  id: string;
+  name: string;
+  providerCode: AgentProviderCode;
+};
+
+type AgentRiskLevel = 'p0' | 'p1' | 'p2' | 'p3' | 'p4';
+
+type AgentThreadMessage = {
+  id: string;
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  content: string;
+  createdAt: string;
+  toolName: string | null;
+};
+
+type AgentApprovalRequest = {
+  id: string;
+  toolName: string;
+  riskLevel: AgentRiskLevel;
+  title: string;
+  summary: string;
+  details: string;
+  command: string | null;
+  confirmCount: 1 | 2;
+  createdAt: string;
+};
+
+type AgentStateSnapshot = {
+  messages: AgentThreadMessage[];
+  pendingApproval: AgentApprovalRequest | null;
+  running: boolean;
+  configured: boolean;
+  lastError: string;
+};
+
+type AgentWhitelistItem = {
+  id: string;
+  pattern: string;
+  description: string;
+  createdAt: string;
+};
 
 type RemoteEntry = {
-  name: string
-  path: string
-  kind: 'file' | 'directory' | 'symlink'
-  size: number
-  modifiedAt: number | null
-}
+  name: string;
+  path: string;
+  kind: 'file' | 'directory' | 'symlink';
+  size: number;
+  modifiedAt: number | null;
+};
 
 type RemoteDirectory = {
-  path: string
-  entries: RemoteEntry[]
-}
+  path: string;
+  entries: RemoteEntry[];
+};
 
 type RemotePathCompletionPayload = {
-  input: string
-  basePath?: string
-  filesOnly?: boolean
-}
+  input: string;
+  basePath?: string;
+  filesOnly?: boolean;
+};
 
 type RemotePathCompletionResult = {
-  value: string
-  matches: string[]
-}
+  value: string;
+  matches: string[];
+};
 
 type SystemMetrics = {
-  cpuPercent: number
-  memoryUsedMb: number
-  memoryTotalMb: number
-  dockerRunning: number | null
-  hostname: string | null
-  osName: string | null
-  kernelVersion: string | null
-  architecture: string | null
-  uptime: string | null
-}
+  cpuPercent: number;
+  memoryUsedMb: number;
+  memoryTotalMb: number;
+  dockerRunning: number | null;
+  hostname: string | null;
+  osName: string | null;
+  kernelVersion: string | null;
+  architecture: string | null;
+  uptime: string | null;
+};
 
-type LiveSystemMetrics = Pick<SystemMetrics, 'cpuPercent' | 'memoryUsedMb' | 'memoryTotalMb'>
+type LiveSystemMetrics = Pick<SystemMetrics, 'cpuPercent' | 'memoryUsedMb' | 'memoryTotalMb'>;
 
 type RemoteApp = {
-  id: string
-  name: string
-  kind: 'service' | 'docker'
-  status: string
-  runtime: string | null
-  image: string | null
-  ports: string | null
-  description: string | null
-}
+  id: string;
+  name: string;
+  kind: 'service' | 'docker';
+  status: string;
+  runtime: string | null;
+  image: string | null;
+  ports: string | null;
+  description: string | null;
+};
 
 const api = {
   sessions: {
     list: (): Promise<SessionItem[]> => ipcRenderer.invoke('sessions:list'),
     create: (payload: CreateSessionPayload): Promise<SessionItem> =>
       ipcRenderer.invoke('sessions:create', payload),
-    delete: (sessionId: string): Promise<{ ok: true }> => ipcRenderer.invoke('sessions:delete', sessionId)
+    delete: (sessionId: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('sessions:delete', sessionId)
+  },
+  agentSettings: {
+    getProvider: (): Promise<AgentProviderSettings> =>
+      ipcRenderer.invoke('agent-settings:get-provider'),
+    listModels: (payload: {
+      providerCode: AgentProviderCode;
+      providerName: string;
+      baseUrl: string;
+      apiKey: string;
+    }): Promise<AgentModelOption[]> => ipcRenderer.invoke('agent-settings:list-models', payload),
+    saveProvider: (
+      payload: Omit<AgentProviderSettings, 'updatedAt'>
+    ): Promise<AgentProviderSettings> => ipcRenderer.invoke('agent-settings:save-provider', payload)
+  },
+  harmlessAgent: {
+    getState: (): Promise<AgentStateSnapshot> => ipcRenderer.invoke('harmless-agent:get-state'),
+    run: (payload: { prompt: string }): Promise<AgentStateSnapshot> =>
+      ipcRenderer.invoke('harmless-agent:run', payload),
+    resolveApproval: (payload: {
+      approvalId: string;
+      approve: boolean;
+    }): Promise<AgentStateSnapshot> =>
+      ipcRenderer.invoke('harmless-agent:resolve-approval', payload),
+    listWhitelist: (): Promise<AgentWhitelistItem[]> =>
+      ipcRenderer.invoke('harmless-agent:list-whitelist'),
+    createWhitelistItem: (payload: {
+      pattern: string;
+      description?: string;
+    }): Promise<AgentWhitelistItem> =>
+      ipcRenderer.invoke('harmless-agent:create-whitelist-item', payload),
+    deleteWhitelistItem: (id: string): Promise<AgentWhitelistItem[]> =>
+      ipcRenderer.invoke('harmless-agent:delete-whitelist-item', id)
   },
   ssh: {
     connect: (payload: SshConnectPayload): Promise<{ ok: true; remotePath: string }> =>
@@ -120,25 +231,26 @@ const api = {
       ipcRenderer.invoke('ssh:list-remote', payload),
     completeRemotePath: (
       payload: RemotePathCompletionPayload
-    ): Promise<RemotePathCompletionResult> => ipcRenderer.invoke('ssh:complete-remote-path', payload),
+    ): Promise<RemotePathCompletionResult> =>
+      ipcRenderer.invoke('ssh:complete-remote-path', payload),
     readRemoteFile: (payload: { path: string }): Promise<{ path: string; content: string }> =>
       ipcRenderer.invoke('ssh:read-remote-file', payload),
     uploadRemoteFile: (payload: {
-      directory: string
-      name: string
-      data: Uint8Array
+      directory: string;
+      name: string;
+      data: Uint8Array;
     }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:upload-remote-file', payload),
     createRemoteDirectory: (payload: { path: string }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:create-remote-directory', payload),
     renameRemoteEntry: (payload: {
-      oldPath: string
-      newPath: string
+      oldPath: string;
+      newPath: string;
     }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:rename-remote-entry', payload),
     deleteRemoteEntry: (payload: {
-      path: string
-      recursive?: boolean
+      path: string;
+      recursive?: boolean;
     }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:delete-remote-entry', payload),
     getLatency: (): Promise<number | null> => ipcRenderer.invoke('ssh:get-latency'),
@@ -150,40 +262,40 @@ const api = {
     input: (data: string) => ipcRenderer.send('ssh:input', data),
     resize: (size: { cols: number; rows: number }) => ipcRenderer.send('ssh:resize', size),
     onData: (listener: (data: string) => void) => {
-      const wrapped = (_event: Electron.IpcRendererEvent, data: string) => listener(data)
-      ipcRenderer.on('ssh:data', wrapped)
-      return () => ipcRenderer.removeListener('ssh:data', wrapped)
+      const wrapped = (_event: Electron.IpcRendererEvent, data: string) => listener(data);
+      ipcRenderer.on('ssh:data', wrapped);
+      return () => ipcRenderer.removeListener('ssh:data', wrapped);
     },
     onStatus: (listener: (payload: SshStatusPayload) => void) => {
       const wrapped = (_event: Electron.IpcRendererEvent, payload: SshStatusPayload) =>
-        listener(payload)
-      ipcRenderer.on('ssh:status', wrapped)
-      return () => ipcRenderer.removeListener('ssh:status', wrapped)
+        listener(payload);
+      ipcRenderer.on('ssh:status', wrapped);
+      return () => ipcRenderer.removeListener('ssh:status', wrapped);
     },
     onLogData: (listener: (data: string) => void) => {
-      const wrapped = (_event: Electron.IpcRendererEvent, data: string) => listener(data)
-      ipcRenderer.on('ssh:log-data', wrapped)
-      return () => ipcRenderer.removeListener('ssh:log-data', wrapped)
+      const wrapped = (_event: Electron.IpcRendererEvent, data: string) => listener(data);
+      ipcRenderer.on('ssh:log-data', wrapped);
+      return () => ipcRenderer.removeListener('ssh:log-data', wrapped);
     },
     onLogStatus: (listener: (payload: SshLogStatusPayload) => void) => {
       const wrapped = (_event: Electron.IpcRendererEvent, payload: SshLogStatusPayload) =>
-        listener(payload)
-      ipcRenderer.on('ssh:log-status', wrapped)
-      return () => ipcRenderer.removeListener('ssh:log-status', wrapped)
+        listener(payload);
+      ipcRenderer.on('ssh:log-status', wrapped);
+      return () => ipcRenderer.removeListener('ssh:log-status', wrapped);
     }
   }
-}
+};
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld('electron', electronAPI);
+    contextBridge.exposeInMainWorld('api', api);
   } catch (error) {
-    console.error(error)
+    console.error(error);
   }
 } else {
   // @ts-ignore (define in dts)
-  window.electron = electronAPI
+  window.electron = electronAPI;
   // @ts-ignore (define in dts)
-  window.api = api
+  window.api = api;
 }

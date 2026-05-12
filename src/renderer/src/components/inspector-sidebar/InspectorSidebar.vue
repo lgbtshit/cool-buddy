@@ -1,20 +1,111 @@
 <script setup lang="ts">
-import { Activity, Bot, Database, Gauge, Send, ServerCog } from 'lucide-vue-next';
+import {
+  Activity,
+  Bot,
+  Database,
+  Gauge,
+  Send,
+  ServerCog,
+  ShieldAlert,
+  Sparkles
+} from 'lucide-vue-next';
 import { storeToRefs } from 'pinia';
-import { ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useAppCopy } from '../../composables/use-app-copy';
 import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
 import MetricsDetailModal from '../metrics-detail-modal/MetricsDetailModal.vue';
 import { useSshConsoleStore } from '../../stores/ssh-console';
+import type { AgentRiskLevel } from '../../types/ssh-console';
 
 const store = useSshConsoleStore();
-const { isConnected, metricsLoading, systemMetrics } = storeToRefs(store);
-const { t } = useAppCopy();
+const {
+  agentMessages,
+  agentRuntime,
+  agentSettingsLoading,
+  hasAgentProviderConfigured,
+  isConnected,
+  metricsLoading,
+  pendingAgentApproval,
+  systemMetrics
+} = storeToRefs(store);
+const { locale, t } = useAppCopy();
 const metricsDetailOpen = ref(false);
+const confirmStep = ref(1);
 
 function formatMemoryGb(valueMb: number): string {
   const valueGb = valueMb / 1024;
   return valueGb >= 10 ? valueGb.toFixed(1) : valueGb.toFixed(2);
+}
+
+onMounted(() => {
+  void store.loadAgentSettings();
+});
+
+const hasAgentMessages = computed(() => agentMessages.value.length > 0);
+
+const agentStatusLabel = computed(() => {
+  if (agentRuntime.value.running) {
+    return 'Running';
+  }
+
+  if (pendingAgentApproval.value) {
+    return pendingAgentApproval.value.riskLevel.toUpperCase();
+  }
+
+  return 'Ready';
+});
+
+function formatAgentTime(value: string): string {
+  return new Intl.DateTimeFormat(locale.value, {
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value));
+}
+
+function getAgentMessageClass(role: string) {
+  if (role === 'user') return 'agent-bubble-user';
+  if (role === 'assistant') return 'agent-bubble-assistant';
+  if (role === 'tool') return 'agent-bubble-tool';
+  return 'agent-bubble-system';
+}
+
+function getApprovalClass(riskLevel: AgentRiskLevel) {
+  if (riskLevel === 'p0' || riskLevel === 'p1') return 'danger';
+  if (riskLevel === 'p2') return 'info';
+  return 'success';
+}
+
+async function sendAgentPrompt() {
+  await store.runHarmlessAgentPrompt();
+}
+
+async function approvePendingAction() {
+  if (!pendingAgentApproval.value) {
+    return;
+  }
+
+  if (pendingAgentApproval.value.confirmCount === 2 && confirmStep.value === 1) {
+    confirmStep.value = 2;
+    return;
+  }
+
+  await store.resolveHarmlessAgentApproval({
+    approvalId: pendingAgentApproval.value.id,
+    approve: true
+  });
+  confirmStep.value = 1;
+}
+
+async function rejectPendingAction() {
+  if (!pendingAgentApproval.value) {
+    return;
+  }
+
+  await store.resolveHarmlessAgentApproval({
+    approvalId: pendingAgentApproval.value.id,
+    approve: false
+  });
+  confirmStep.value = 1;
 }
 </script>
 
@@ -92,62 +183,154 @@ function formatMemoryGb(valueMb: number): string {
       @close="metricsDetailOpen = false"
     />
 
-    <section class="agent-card">
-      <div class="agent-header">
-        <div class="agent-identity">
-          <div class="agent-avatar">
-            <Bot :size="15" />
+    <template v-if="hasAgentProviderConfigured">
+      <section class="agent-card">
+        <div class="agent-header">
+          <div class="agent-identity">
+            <div class="agent-avatar">
+              <Bot :size="15" />
+            </div>
+            <div class="agent-heading">
+              <span class="agent-eyebrow">{{ t('aiAgent') }}</span>
+              <strong>Harmless Agent</strong>
+            </div>
           </div>
-          <div class="agent-heading">
-            <span class="agent-eyebrow">{{ t('aiAgent') }}</span>
-            <strong>{{ t('aiTaskTitle') }}</strong>
+          <div class="agent-status">
+            <span class="agent-status-dot"></span>
+            <span>{{ agentStatusLabel }}</span>
           </div>
         </div>
-        <div class="agent-status">
-          <span class="agent-status-dot"></span>
-          <span>{{ t('connected') }}</span>
+
+        <div v-if="hasAgentMessages" class="agent-thread">
+          <article
+            v-for="message in agentMessages"
+            :key="message.id"
+            class="agent-bubble"
+            :class="getAgentMessageClass(message.role)"
+          >
+            <span class="agent-bubble-label">
+              {{ message.toolName ?? message.role }} · {{ formatAgentTime(message.createdAt) }}
+            </span>
+            <code v-if="message.role === 'tool' || message.toolName">{{ message.content }}</code>
+            <p v-else>{{ message.content }}</p>
+          </article>
         </div>
-      </div>
 
-      <div class="agent-thread">
-        <article class="agent-bubble agent-bubble-user">
-          <span class="agent-bubble-label">{{ t('task') }}</span>
-          <p class="timeline-title">{{ t('aiTaskTitle') }}</p>
-          <p>{{ t('aiTaskBody') }}</p>
-        </article>
+        <EmptyStatePanel
+          v-else
+          :compact="true"
+          :description="
+            agentRuntime.running
+              ? 'Harmless is preparing the first tool pass.'
+              : 'Ask for a diagnosis, metrics summary, service check, log read, or remote file operation.'
+          "
+          :icon="Bot"
+          title="Harmless is ready"
+        />
+      </section>
 
-        <article class="agent-bubble agent-bubble-system">
-          <span class="agent-bubble-label">{{ t('executedAt') }} 16:46:10</span>
-          <code>systemctl status node-api.service</code>
-          <p class="timeline-result">{{ t('aiResult') }}</p>
-        </article>
+      <section class="agent-actions">
+        <div class="chip-row">
+          <button
+            @click="store.setAiInput('Check current system metrics and summarize the host health.')"
+          >
+            Host Health
+          </button>
+          <button
+            @click="
+              store.setAiInput(
+                'Inspect running services and containers, then summarize any obvious concerns.'
+              )
+            "
+          >
+            Running Apps
+          </button>
+          <button
+            @click="
+              store.setAiInput(
+                'Read the latest 80 lines from a useful application log and summarize anomalies.'
+              )
+            "
+          >
+            Check Logs
+          </button>
+        </div>
 
-        <article class="agent-bubble agent-bubble-assistant">
-          <span class="agent-bubble-label">{{ t('nextRecommendation') }}</span>
-          <p>{{ t('aiRecommendation') }}</p>
-        </article>
-      </div>
+        <div class="prompt-box agent-composer">
+          <textarea
+            :value="store.aiInput"
+            :placeholder="t('askAi')"
+            :disabled="agentRuntime.running"
+            rows="2"
+            @input="store.setAiInput(($event.target as HTMLTextAreaElement).value)"
+          ></textarea>
+          <button class="send-btn" :disabled="agentRuntime.running" @click="void sendAgentPrompt()">
+            <Send :size="16" />
+          </button>
+        </div>
+      </section>
+    </template>
+
+    <section v-else class="agent-empty-card">
+      <EmptyStatePanel
+        :compact="false"
+        :description="agentSettingsLoading ? t('loadingSessions') : t('agentEmptyDescription')"
+        :icon="Sparkles"
+        :title="t('agentEmptyTitle')"
+      >
+        <template #actions>
+          <button class="primary-btn agent-empty-cta" @click="void store.openAgentSettingsModal()">
+            {{ t('openTerminalSettings') }}
+          </button>
+        </template>
+      </EmptyStatePanel>
     </section>
 
-    <section class="agent-actions">
-      <div class="chip-row">
-        <button>{{ t('restartService') }}</button>
-        <button>{{ t('checkLogs') }}</button>
-        <button>{{ t('auditPermissions') }}</button>
-      </div>
+    <div v-if="pendingAgentApproval" class="modal-scrim">
+      <section
+        class="session-modal approval-modal"
+        :class="getApprovalClass(pendingAgentApproval.riskLevel)"
+      >
+        <div class="modal-header">
+          <div>
+            <h2>{{ pendingAgentApproval.riskLevel.toUpperCase() }} Confirmation</h2>
+            <p>{{ pendingAgentApproval.summary }}</p>
+          </div>
+          <div class="approval-badge">
+            <ShieldAlert :size="14" />
+            <span>{{ pendingAgentApproval.toolName }}</span>
+          </div>
+        </div>
 
-      <div class="prompt-box agent-composer">
-        <textarea
-          :value="store.aiInput"
-          :placeholder="t('askAi')"
-          rows="2"
-          @input="store.setAiInput(($event.target as HTMLTextAreaElement).value)"
-        ></textarea>
-        <button class="send-btn">
-          <Send :size="16" />
-        </button>
-      </div>
-    </section>
+        <div class="approval-body">
+          <p>{{ pendingAgentApproval.details }}</p>
+          <code v-if="pendingAgentApproval.command">{{ pendingAgentApproval.command }}</code>
+          <p
+            v-if="pendingAgentApproval.confirmCount === 2 && confirmStep === 1"
+            class="approval-note"
+          >
+            This is a P0 action. The first click arms execution, and the second click sends it.
+          </p>
+          <p
+            v-if="pendingAgentApproval.confirmCount === 2 && confirmStep === 2"
+            class="approval-note"
+          >
+            Final confirmation. This action will run immediately after you confirm again.
+          </p>
+        </div>
+
+        <div class="modal-actions approval-actions">
+          <button class="ghost-btn" @click="void rejectPendingAction()">Reject</button>
+          <button class="primary-btn" @click="void approvePendingAction()">
+            {{
+              pendingAgentApproval.confirmCount === 2 && confirmStep === 1
+                ? 'Arm Execution'
+                : 'Confirm Execution'
+            }}
+          </button>
+        </div>
+      </section>
+    </div>
   </aside>
 </template>
 
@@ -164,7 +347,8 @@ function formatMemoryGb(valueMb: number): string {
 
 .metrics-card,
 .agent-card,
-.agent-actions {
+.agent-actions,
+.agent-empty-card {
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 6px;
@@ -407,6 +591,12 @@ function formatMemoryGb(valueMb: number): string {
   background: rgba(0, 220, 229, 0.06);
 }
 
+.agent-bubble-tool {
+  align-self: stretch;
+  border-color: rgba(84, 99, 118, 0.32);
+  background: rgba(16, 20, 28, 0.9);
+}
+
 .agent-bubble-label {
   display: block;
   margin-bottom: 8px;
@@ -427,6 +617,41 @@ function formatMemoryGb(valueMb: number): string {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.agent-empty-card {
+  display: flex;
+  min-height: 0;
+  align-items: stretch;
+
+  :deep(.empty-state-panel) {
+    width: 100%;
+    min-height: 100%;
+    justify-content: flex-start;
+    padding: 18px 16px;
+    border-style: solid;
+    border-color: rgba(99, 247, 255, 0.12);
+    border-radius: 8px;
+    background:
+      linear-gradient(180deg, rgba(18, 28, 30, 0.32), rgba(14, 14, 17, 0.2)),
+      rgba(255, 255, 255, 0.01);
+  }
+
+  :deep(.empty-state-copy strong) {
+    font-size: 14px;
+  }
+
+  :deep(.empty-state-actions) {
+    margin-top: 4px;
+  }
+}
+
+.agent-empty-cta {
+  min-width: 148px;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 
 .chip-row {
@@ -507,5 +732,69 @@ function formatMemoryGb(valueMb: number): string {
   &:hover {
     background: rgba(99, 247, 255, 0.12);
   }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.approval-modal {
+  width: min(560px, calc(100vw - 40px));
+
+  &.danger {
+    border-color: rgba(255, 118, 118, 0.34);
+  }
+
+  &.info {
+    border-color: rgba(99, 180, 255, 0.28);
+  }
+
+  &.success {
+    border-color: rgba(105, 246, 185, 0.24);
+  }
+}
+
+.approval-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  color: rgba(228, 225, 230, 0.82);
+  font-size: 11px;
+}
+
+.approval-body {
+  display: grid;
+  gap: 12px;
+
+  p {
+    color: rgba(228, 225, 230, 0.84);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  code {
+    display: block;
+    padding: 12px 13px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    background: rgba(10, 11, 14, 0.82);
+    color: #f3f6f7;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.approval-note {
+  color: rgba(255, 206, 122, 0.88);
+}
+
+.approval-actions {
+  margin-top: 18px;
 }
 </style>

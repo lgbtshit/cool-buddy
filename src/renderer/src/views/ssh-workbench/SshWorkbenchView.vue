@@ -13,6 +13,7 @@ import LogSettingsModal from '../../components/log-settings-modal/LogSettingsMod
 import PasteConfirmModal from '../../components/paste-confirm-modal/PasteConfirmModal.vue';
 import SessionModal from '../../components/session-modal/SessionModal.vue';
 import SessionSidebar from '../../components/session-sidebar/SessionSidebar.vue';
+import TerminalSettingsModal from '../../components/terminal-settings-modal/TerminalSettingsModal.vue';
 import TerminalPanel from '../../components/terminal-panel/TerminalPanel.vue';
 import TopBar from '../../components/top-bar/TopBar.vue';
 import { useSshConsoleStore } from '../../stores/ssh-console';
@@ -326,7 +327,7 @@ onBeforeUnmount(() => {
       <div class="footer-actions">
         <button @click="keybindingsOpen = true">{{ t('keyBindings') }}</button>
         <button>{{ t('quickActions') }}</button>
-        <button>{{ t('terminalSettings') }}</button>
+        <button @click="void store.openAgentSettingsModal()">{{ t('terminalSettings') }}</button>
       </div>
     </footer>
 
@@ -347,6 +348,7 @@ onBeforeUnmount(() => {
       @save="saveLogSettings"
       @update:line-limit="logSettingsDraft = $event"
     />
+    <TerminalSettingsModal />
     <PasteConfirmModal
       :content="pendingPasteContent"
       :open="pasteConfirmOpen"

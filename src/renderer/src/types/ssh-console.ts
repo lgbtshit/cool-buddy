@@ -4,6 +4,31 @@ export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnecte
 export type SessionGroup = 'production' | 'staging' | 'local';
 export type SessionStatus = 'online' | 'warning' | 'offline';
 export type SessionIcon = 'server' | 'database' | 'hardDrive';
+export type AgentProviderCode =
+  | 'openai'
+  | 'azure-openai'
+  | 'anthropic'
+  | 'google-gemini'
+  | 'deepseek'
+  | 'qwen'
+  | 'zhipu'
+  | 'moonshot'
+  | 'baidu-qianfan'
+  | 'siliconflow'
+  | 'groq'
+  | 'mistral'
+  | 'openrouter'
+  | 'ollama'
+  | 'lm-studio'
+  | 'xai'
+  | 'perplexity'
+  | 'fireworks'
+  | 'together'
+  | 'volcengine-ark'
+  | 'tencent-hunyuan'
+  | 'minimax'
+  | '302ai'
+  | 'custom';
 
 export type SessionItem = {
   id: string;
@@ -31,6 +56,65 @@ export type ConnectionForm = {
   port: number;
   username: string;
   password: string;
+};
+
+export type AgentProviderSettings = {
+  providerCode: AgentProviderCode;
+  providerName: string;
+  baseUrl: string;
+  apiKey: string;
+  modelName: string;
+  updatedAt: string | null;
+};
+
+export type AgentProviderOption = {
+  code: AgentProviderCode;
+  name: string;
+  baseUrl: string;
+  description: string;
+};
+
+export type AgentModelOption = {
+  id: string;
+  name: string;
+  providerCode: AgentProviderCode;
+};
+
+export type AgentRiskLevel = 'p0' | 'p1' | 'p2' | 'p3' | 'p4';
+
+export type AgentThreadMessage = {
+  id: string;
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  content: string;
+  createdAt: string;
+  toolName: string | null;
+};
+
+export type AgentApprovalRequest = {
+  id: string;
+  toolName: string;
+  riskLevel: AgentRiskLevel;
+  title: string;
+  summary: string;
+  details: string;
+  command: string | null;
+  confirmCount: 1 | 2;
+  createdAt: string;
+};
+
+export type AgentStateSnapshot = {
+  messages: AgentThreadMessage[];
+  pendingApproval: AgentApprovalRequest | null;
+  running: boolean;
+  configured: boolean;
+  lastError: string;
+};
+
+export type AgentWhitelistItem = {
+  id: string;
+  pattern: string;
+  description: string;
+  createdAt: string;
 };
 
 export type TabMenuState = {
