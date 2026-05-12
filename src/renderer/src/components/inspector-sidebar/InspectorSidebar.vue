@@ -192,7 +192,7 @@ async function rejectPendingAction() {
             </div>
             <div class="agent-heading">
               <span class="agent-eyebrow">{{ t('aiAgent') }}</span>
-              <strong>Harmless Agent</strong>
+              <strong>小酷</strong>
             </div>
           </div>
           <div class="agent-status">
@@ -209,7 +209,7 @@ async function rejectPendingAction() {
             :class="getAgentMessageClass(message.role)"
           >
             <span class="agent-bubble-label">
-              {{ message.toolName ?? message.role }} · {{ formatAgentTime(message.createdAt) }}
+              {{ message.toolName ?? message.role }} - {{ formatAgentTime(message.createdAt) }}
             </span>
             <code v-if="message.role === 'tool' || message.toolName">{{ message.content }}</code>
             <p v-else>{{ message.content }}</p>
@@ -548,6 +548,7 @@ async function rejectPendingAction() {
 }
 
 .agent-bubble {
+  min-width: 0;
   max-width: 100%;
   padding: 12px 13px;
   border: 1px solid rgba(58, 73, 74, 0.34);
@@ -559,6 +560,9 @@ async function rejectPendingAction() {
     color: rgba(228, 225, 230, 0.84);
     font-size: 12px;
     line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   code {
@@ -571,6 +575,9 @@ async function rejectPendingAction() {
     color: #4ff7c0;
     font-size: 11px;
     line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 }
 
@@ -600,6 +607,9 @@ async function rejectPendingAction() {
 .agent-bubble-label {
   display: block;
   margin-bottom: 8px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .timeline-title {

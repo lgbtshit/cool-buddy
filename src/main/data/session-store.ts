@@ -25,7 +25,7 @@ const DEFAULT_AGENT_MODEL_BY_PROVIDER: Record<string, string> = {
   'google-gemini': 'gemini-2.5-flash',
   deepseek: 'deepseek-chat',
   qwen: 'qwen-plus',
-  zhipu: 'glm-4-flash',
+  zhipu: 'glm-4.7',
   moonshot: 'moonshot-v1-8k',
   'baidu-qianfan': 'ernie-4.0-8k',
   siliconflow: 'deepseek-ai/DeepSeek-V3',
@@ -85,13 +85,20 @@ function mapAgentProviderSettings(
     };
   }
 
+  const normalizedModelName =
+    record.provider_code === 'zhipu' && record.model_name === 'glm-4-flash'
+      ? DEFAULT_AGENT_MODEL_BY_PROVIDER.zhipu
+      : record.model_name;
+
   return {
     providerCode: record.provider_code,
     providerName: record.provider_name,
     baseUrl: record.base_url,
     apiKey: record.api_key,
     modelName:
-      record.model_name || DEFAULT_AGENT_MODEL_BY_PROVIDER[record.provider_code] || 'gpt-4.1-mini',
+      normalizedModelName ||
+      DEFAULT_AGENT_MODEL_BY_PROVIDER[record.provider_code] ||
+      'gpt-4.1-mini',
     updatedAt: record.updated_at
   };
 }

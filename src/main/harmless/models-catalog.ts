@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { AxiosError } from 'axios';
 import type {
   AgentModelOption,
   AgentProviderSettingsItem,
@@ -23,13 +24,69 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
 }
 
-function buildModelsUrl(settings: AgentProviderSettingsItem): string {
-  const normalized = normalizeBaseUrl(settings.baseUrl);
-  if (inferProviderProtocol(settings.providerCode) === 'anthropic') {
-    return normalized.endsWith('/v1') ? `${normalized}/models` : `${normalized}/v1/models`;
+function stripKnownInferenceSuffix(normalizedBaseUrl: string): string {
+  const suffixes = [
+    '/chat/completions',
+    '/v1/chat/completions',
+    '/messages',
+    '/v1/messages',
+    '/completions',
+    '/responses'
+  ];
+
+  for (const suffix of suffixes) {
+    if (normalizedBaseUrl.endsWith(suffix)) {
+      return normalizedBaseUrl.slice(0, -suffix.length);
+    }
   }
 
-  return normalized.endsWith('/models') ? normalized : `${normalized}/models`;
+  return normalizedBaseUrl;
+}
+
+function buildModelsUrlCandidates(settings: AgentProviderSettingsItem): string[] {
+  const normalized = stripKnownInferenceSuffix(normalizeBaseUrl(settings.baseUrl));
+  if (inferProviderProtocol(settings.providerCode) === 'anthropic') {
+    return [normalized.endsWith('/v1') ? `${normalized}/models` : `${normalized}/v1/models`];
+  }
+
+  const candidates = new Set<string>();
+  candidates.add(normalized.endsWith('/models') ? normalized : `${normalized}/models`);
+
+  if (normalized.endsWith('/v1')) {
+    candidates.add(`${normalized.slice(0, -3)}/models`);
+  } else if (normalized.endsWith('/v4')) {
+    candidates.add(`${normalized.slice(0, -3)}/models`);
+  } else if (normalized.includes('/api/paas/v4')) {
+    candidates.add(`${normalized.replace(/\/api\/paas\/v4$/, '')}/api/paas/models`);
+  }
+
+  return [...candidates];
+}
+
+function getReadableFetchError(error: unknown, attemptedUrls: string[]): Error {
+  if (!(error instanceof AxiosError)) {
+    return error instanceof Error ? error : new Error('Failed to load provider models.');
+  }
+
+  const status = error.response?.status;
+  if (status === 404) {
+    return new Error(
+      `Model list endpoint was not found. Tried: ${attemptedUrls.join(', ')}. ` +
+        'This provider may not expose a model-list API at that Base URL. You can still enter the model name manually.'
+    );
+  }
+
+  if (status === 401 || status === 403) {
+    return new Error(
+      'Model list request was rejected. Check the API key and provider permissions.'
+    );
+  }
+
+  if (error.code === 'ECONNABORTED') {
+    return new Error('Model list request timed out. Check the Base URL and network connectivity.');
+  }
+
+  return new Error(error.message || 'Failed to load provider models.');
 }
 
 function normalizeSettingsPayload(payload: FetchAgentModelsPayload): AgentProviderSettingsItem {
@@ -53,7 +110,7 @@ export async function fetchProviderModels(
   }
 
   const protocol = inferProviderProtocol(settings.providerCode);
-  const url = buildModelsUrl(settings);
+  const urls = buildModelsUrlCandidates(settings);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${settings.apiKey.trim()}`
   };
@@ -64,10 +121,27 @@ export async function fetchProviderModels(
     headers['anthropic-version'] = '2023-06-01';
   }
 
-  const response = await axios.get<OpenAiModelsResponse | AnthropicModelsResponse>(url, {
-    headers,
-    timeout: 15000
-  });
+  let response: { data?: OpenAiModelsResponse | AnthropicModelsResponse } | null = null;
+  let lastError: unknown = null;
+
+  for (const url of urls) {
+    try {
+      response = await axios.get<OpenAiModelsResponse | AnthropicModelsResponse>(url, {
+        headers,
+        timeout: 15000
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof AxiosError) || error.response?.status !== 404) {
+        throw getReadableFetchError(error, urls);
+      }
+    }
+  }
+
+  if (!response) {
+    throw getReadableFetchError(lastError, urls);
+  }
 
   const rawModels = Array.isArray(response.data?.data) ? response.data.data : [];
   const models = rawModels

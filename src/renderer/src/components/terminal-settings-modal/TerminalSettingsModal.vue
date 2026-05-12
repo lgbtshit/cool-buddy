@@ -22,7 +22,9 @@ const { locale, t } = useAppCopy();
 
 const activeCategory = ref<'provider'>('provider');
 const providerMenuOpen = ref(false);
+const modelMenuOpen = ref(false);
 const providerPickerRef = ref<HTMLElement | null>(null);
+const modelPickerRef = ref<HTMLElement | null>(null);
 
 const selectedProviderDescription = computed(() => {
   return (
@@ -52,15 +54,59 @@ const selectedProviderName = computed(() => {
   );
 });
 
-const modelDatalistId = 'agent-provider-models';
+const selectedModelOption = computed(() => {
+  return (
+    agentModelOptions.value.find((item) => item.id === agentSettings.value.modelName.trim()) ?? null
+  );
+});
+
+const filteredAgentModels = computed(() => {
+  const keyword = agentSettings.value.modelName.trim().toLowerCase();
+  if (!keyword) {
+    return agentModelOptions.value;
+  }
+
+  return agentModelOptions.value.filter((model) => {
+    const id = model.id.toLowerCase();
+    const name = model.name.toLowerCase();
+    return id.includes(keyword) || name.includes(keyword);
+  });
+});
 
 function toggleProviderMenu() {
   providerMenuOpen.value = !providerMenuOpen.value;
+  if (providerMenuOpen.value) {
+    modelMenuOpen.value = false;
+  }
 }
 
 function selectProvider(providerCode: AgentProviderCode) {
   store.applyAgentProviderCode(providerCode);
   providerMenuOpen.value = false;
+  modelMenuOpen.value = false;
+}
+
+function toggleModelMenu() {
+  if (!agentModelOptions.value.length && !agentModelsLoading.value) {
+    return;
+  }
+
+  modelMenuOpen.value = !modelMenuOpen.value;
+  if (modelMenuOpen.value) {
+    providerMenuOpen.value = false;
+  }
+}
+
+function openModelMenu() {
+  if (agentModelOptions.value.length || agentModelsLoading.value) {
+    modelMenuOpen.value = true;
+    providerMenuOpen.value = false;
+  }
+}
+
+function selectModel(modelId: string) {
+  store.updateAgentModelName(modelId);
+  modelMenuOpen.value = false;
 }
 
 async function loadProviderModels() {
@@ -68,19 +114,28 @@ async function loadProviderModels() {
 }
 
 function handleWindowPointerDown(event: MouseEvent) {
-  if (!providerMenuOpen.value || !providerPickerRef.value) {
+  const target = event.target;
+  if (!(target instanceof Node)) {
     return;
   }
 
-  const target = event.target;
-  if (target instanceof Node && !providerPickerRef.value.contains(target)) {
+  if (
+    providerMenuOpen.value &&
+    providerPickerRef.value &&
+    !providerPickerRef.value.contains(target)
+  ) {
     providerMenuOpen.value = false;
+  }
+
+  if (modelMenuOpen.value && modelPickerRef.value && !modelPickerRef.value.contains(target)) {
+    modelMenuOpen.value = false;
   }
 }
 
 function handleEscape(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     providerMenuOpen.value = false;
+    modelMenuOpen.value = false;
   }
 }
 
@@ -209,24 +264,78 @@ onBeforeUnmount(() => {
                     <span>{{ t('agentProviderLoadModels') }}</span>
                   </button>
                 </div>
-                <div class="field-shell">
-                  <Waypoints :size="15" />
-                  <input
-                    :value="agentSettings.modelName"
-                    :placeholder="t('agentProviderModelPlaceholder')"
-                    :list="modelDatalistId"
-                    type="text"
-                    @input="store.updateAgentModelName(($event.target as HTMLInputElement).value)"
-                  />
+                <div ref="modelPickerRef" class="model-picker">
+                  <div class="field-shell field-shell-picker" :class="{ open: modelMenuOpen }">
+                    <Waypoints :size="15" />
+                    <input
+                      :value="agentSettings.modelName"
+                      :placeholder="t('agentProviderModelPlaceholder')"
+                      type="text"
+                      @focus="openModelMenu"
+                      @input="
+                        store.updateAgentModelName(($event.target as HTMLInputElement).value);
+                        openModelMenu();
+                      "
+                    />
+                    <button
+                      class="field-shell-caret"
+                      :disabled="!agentModelOptions.length && !agentModelsLoading"
+                      type="button"
+                      @click="toggleModelMenu"
+                    >
+                      <ChevronDown :size="16" />
+                    </button>
+                  </div>
+                  <div
+                    v-if="modelMenuOpen || agentModelsLoading"
+                    class="provider-picker-menu model-picker-menu"
+                  >
+                    <div v-if="agentModelsLoading" class="model-picker-empty">
+                      {{ t('loadingSessions') }}
+                    </div>
+                    <template v-else-if="filteredAgentModels.length">
+                      <button
+                        v-for="model in filteredAgentModels"
+                        :key="model.id"
+                        class="provider-picker-option"
+                        :class="{ active: model.id === agentSettings.modelName }"
+                        type="button"
+                        @click="selectModel(model.id)"
+                      >
+                        <span class="provider-picker-option-main">
+                          <span class="provider-picker-option-name">{{ model.name }}</span>
+                          <span
+                            v-if="model.name !== model.id"
+                            class="provider-picker-option-description"
+                          >
+                            {{ model.id }}
+                          </span>
+                        </span>
+                        <Check
+                          v-if="model.id === agentSettings.modelName"
+                          :size="15"
+                          class="provider-picker-check"
+                        />
+                      </button>
+                    </template>
+                    <div v-else class="model-picker-empty">
+                      No matching loaded models. You can keep typing a custom model name.
+                    </div>
+                  </div>
                 </div>
-                <datalist :id="modelDatalistId">
-                  <option v-for="model in agentModelOptions" :key="model.id" :value="model.id">
-                    {{ model.name }}
-                  </option>
-                </datalist>
               </label>
 
-              <p class="helper-text">{{ t('agentProviderModelsHint') }}</p>
+              <p class="helper-text">
+                {{
+                  selectedModelOption
+                    ? `Selected: ${selectedModelOption.name}${
+                        selectedModelOption.name !== selectedModelOption.id
+                          ? ` (${selectedModelOption.id})`
+                          : ''
+                      }`
+                    : t('agentProviderModelsHint')
+                }}
+              </p>
 
               <p class="footnote">{{ t('agentCodexHint') }}</p>
               <p v-if="updatedAtLabel" class="saved-at">
@@ -385,6 +494,10 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
+.model-picker {
+  position: relative;
+}
+
 .provider-picker-trigger {
   display: flex;
   width: 100%;
@@ -442,9 +555,9 @@ onBeforeUnmount(() => {
   top: calc(100% + 8px);
   left: 0;
   width: 100%;
-  max-height: 320px;
+  max-height: 260px;
   overflow: auto;
-  padding: 8px;
+  padding: 6px;
   border: 1px solid rgba(73, 86, 91, 0.52);
   border-radius: 10px;
   background: rgba(18, 20, 24, 0.98);
@@ -468,12 +581,13 @@ onBeforeUnmount(() => {
 .provider-picker-option {
   display: flex;
   width: 100%;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 11px 12px;
+  min-height: 42px;
+  padding: 9px 10px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: rgba(228, 225, 230, 0.9);
   text-align: left;
@@ -484,33 +598,34 @@ onBeforeUnmount(() => {
     transform 140ms ease;
 
   &:hover {
-    border-color: rgba(99, 247, 255, 0.18);
-    background: rgba(99, 247, 255, 0.08);
+    border-color: rgba(99, 247, 255, 0.12);
+    background: rgba(99, 247, 255, 0.06);
   }
 
   &.active {
-    border-color: rgba(99, 247, 255, 0.24);
-    background: linear-gradient(180deg, rgba(29, 43, 48, 0.96) 0%, rgba(24, 34, 39, 0.96) 100%);
+    border-color: rgba(99, 247, 255, 0.16);
+    background: rgba(35, 49, 54, 0.78);
   }
 }
 
 .provider-picker-option-main {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
+  flex: 1;
 }
 
 .provider-picker-option-name {
   color: rgba(236, 238, 240, 0.96);
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 
 .provider-picker-option-description {
   color: rgba(165, 178, 184, 0.72);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .provider-picker-check {
@@ -563,6 +678,64 @@ onBeforeUnmount(() => {
   input {
     height: 42px;
   }
+}
+
+.field-shell-picker {
+  padding-right: 6px;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+
+  &.open {
+    border-color: rgba(99, 247, 255, 0.36);
+    background: var(--field-bg-elevated);
+    box-shadow: 0 0 0 1px rgba(99, 247, 255, 0.08);
+  }
+}
+
+.field-shell-caret {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(185, 202, 202, 0.72);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+
+  &:hover:not(:disabled) {
+    background: rgba(99, 247, 255, 0.1);
+    color: var(--cyan-soft);
+  }
+
+  &:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+  }
+
+  .field-shell-picker.open & {
+    color: var(--cyan-soft);
+    transform: rotate(180deg);
+  }
+}
+
+.model-picker-menu {
+  top: calc(100% + 6px);
+}
+
+.model-picker-empty {
+  padding: 12px;
+  color: rgba(185, 202, 202, 0.68);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .footnote,

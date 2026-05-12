@@ -184,7 +184,7 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<AgentProviderCode, string> = {
   'google-gemini': 'gemini-2.5-flash',
   deepseek: 'deepseek-chat',
   qwen: 'qwen-plus',
-  zhipu: 'glm-4-flash',
+  zhipu: 'glm-4.7',
   moonshot: 'moonshot-v1-8k',
   'baidu-qianfan': 'ernie-4.0-8k',
   siliconflow: 'deepseek-ai/DeepSeek-V3',

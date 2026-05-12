@@ -14,7 +14,7 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<AgentProviderCode, string> = {
   'google-gemini': 'gemini-2.5-flash',
   deepseek: 'deepseek-chat',
   qwen: 'qwen-plus',
-  zhipu: 'glm-4-flash',
+  zhipu: 'glm-4.7',
   moonshot: 'moonshot-v1-8k',
   'baidu-qianfan': 'ernie-4.0-8k',
   siliconflow: 'deepseek-ai/DeepSeek-V3',
@@ -42,9 +42,35 @@ export function getDefaultModelName(providerCode: AgentProviderCode): string {
   return DEFAULT_MODEL_BY_PROVIDER[providerCode] ?? DEFAULT_MODEL_BY_PROVIDER.custom;
 }
 
+function normalizeModelBaseUrl(settings: AgentProviderSettingsItem): string {
+  const trimmed = settings.baseUrl.trim().replace(/\/+$/, '');
+
+  if (inferProviderProtocol(settings.providerCode) === 'anthropic') {
+    return trimmed;
+  }
+
+  const suffixes = [
+    '/chat/completions',
+    '/v1/chat/completions',
+    '/messages',
+    '/v1/messages',
+    '/completions',
+    '/responses'
+  ];
+
+  for (const suffix of suffixes) {
+    if (trimmed.endsWith(suffix)) {
+      return trimmed.slice(0, -suffix.length);
+    }
+  }
+
+  return trimmed;
+}
+
 export function createAgentModel(settings: AgentProviderSettingsItem): BaseChatModel {
   const protocol = inferProviderProtocol(settings.providerCode);
   const model = settings.modelName.trim() || getDefaultModelName(settings.providerCode);
+  const baseUrl = normalizeModelBaseUrl(settings);
 
   if (protocol === 'anthropic') {
     return new ChatAnthropic({
@@ -52,7 +78,7 @@ export function createAgentModel(settings: AgentProviderSettingsItem): BaseChatM
       temperature: 0,
       apiKey: settings.apiKey,
       clientOptions: {
-        baseURL: settings.baseUrl
+        baseURL: baseUrl
       }
     });
   }
@@ -62,7 +88,7 @@ export function createAgentModel(settings: AgentProviderSettingsItem): BaseChatM
     temperature: 0,
     apiKey: settings.apiKey,
     configuration: {
-      baseURL: settings.baseUrl
+      baseURL: baseUrl
     }
   });
 }

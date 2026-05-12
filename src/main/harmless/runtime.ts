@@ -35,7 +35,7 @@ import { createAgentModel } from './model';
 import { assessCommandRisk, getRiskConfirmCount } from './risk';
 
 const SYSTEM_PROMPT = `
-You are Harmless, an operations-focused AI agent embedded in a terminal workbench.
+You are cool-buddy, an operations-focused AI agent embedded in a terminal workbench.
 
 Rules:
 - You help with Linux ops, diagnostics, services, logs, remote files, and container checks.
@@ -122,6 +122,26 @@ function getMessageText(content: unknown): string {
   return '';
 }
 
+function formatAgentError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Harmless agent failed.';
+
+  if (/MODEL_NOT_FOUND/i.test(message) || /model.*not found/i.test(message)) {
+    return (
+      'The configured model was not found by the provider. Check the model name in Terminal Settings, ' +
+      'or reload the provider model list and pick one that exists.'
+    );
+  }
+
+  if (/404/.test(message)) {
+    return (
+      'The provider returned 404. The Base URL may point to a chat endpoint instead of the API root, ' +
+      'or the selected model path is unsupported.'
+    );
+  }
+
+  return message;
+}
+
 function createApprovalRequest(input: {
   toolName: string;
   riskLevel: AgentRiskLevel;
@@ -193,7 +213,7 @@ export class HarmlessAgentRuntime {
     try {
       await this.runAgentLoop(settings);
     } catch (error) {
-      this.lastError = error instanceof Error ? error.message : 'Harmless agent failed.';
+      this.lastError = formatAgentError(error);
       this.appendThreadMessage('system', this.lastError);
     } finally {
       if (!this.pendingExecution) {
@@ -242,7 +262,7 @@ export class HarmlessAgentRuntime {
         await this.runAgentLoop(settings);
       }
     } catch (error) {
-      this.lastError = error instanceof Error ? error.message : 'Failed to resolve approval.';
+      this.lastError = formatAgentError(error);
       this.appendThreadMessage('system', this.lastError);
     } finally {
       if (!this.pendingExecution) {
