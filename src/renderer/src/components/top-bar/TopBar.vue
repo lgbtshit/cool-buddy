@@ -1,16 +1,12 @@
 <script setup lang="ts">
 import {
   Circle,
-  Grid2x2,
-  History,
   Languages,
-  LayoutGrid,
   MoreHorizontal,
   Plus,
   Server,
   Database,
-  HardDrive,
-  X
+  HardDrive
 } from 'lucide-vue-next';
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
@@ -19,7 +15,7 @@ import { useSshConsoleStore } from '../../stores/ssh-console';
 import type { SessionItem } from '../../types/ssh-console';
 
 const store = useSshConsoleStore();
-const { activeSessionId, latencyLabel, openTabs, status, tabMenu } = storeToRefs(store);
+const { activeSessionId, latencyLabel, openTabs, tabMenu } = storeToRefs(store);
 const { localeLabel, t } = useAppCopy();
 
 const iconMap = {
@@ -127,12 +123,6 @@ onBeforeUnmount(() => {
         <Circle :size="10" class="pulse-dot" />
         <span>{{ latencyLabel }}</span>
       </div>
-      <button class="icon-btn"><Grid2x2 :size="16" /></button>
-      <button class="icon-btn"><LayoutGrid :size="16" /></button>
-      <button class="icon-btn"><History :size="16" /></button>
-      <button class="icon-btn" :disabled="status !== 'connected'" @click="store.disconnect()">
-        <X :size="15" />
-      </button>
       <button class="locale-btn" @click="store.toggleLocale()">
         <Languages :size="15" />
         <span>{{ localeLabel }}</span>

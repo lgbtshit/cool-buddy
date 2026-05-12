@@ -25,7 +25,7 @@ const { activeSessionId, filteredSessions, searchQuery, sessionGroups, sessions,
   storeToRefs(store);
 const { t } = useAppCopy();
 const appVersion = packageJson.version;
-const sessionPaneRef = ref<HTMLElement | null>(null);
+const leftRailRef = ref<HTMLElement | null>(null);
 const sessionMenuRef = ref<HTMLElement | null>(null);
 const sessionMenu = ref<{ sessionId: string; x: number; y: number } | null>(null);
 const sessionMenuStyle = ref({ left: '0px', top: '0px' });
@@ -48,17 +48,17 @@ const closeSessionMenu = () => {
 };
 
 const updateSessionMenuPosition = () => {
-  if (!sessionMenu.value || !sessionPaneRef.value || !sessionMenuRef.value) return;
+  if (!sessionMenu.value || !leftRailRef.value || !sessionMenuRef.value) return;
 
-  const paneRect = sessionPaneRef.value.getBoundingClientRect();
+  const railRect = leftRailRef.value.getBoundingClientRect();
   const menuRect = sessionMenuRef.value.getBoundingClientRect();
   const maxLeft = Math.max(
     VIEWPORT_PADDING_PX,
-    window.innerWidth - paneRect.left - menuRect.width - VIEWPORT_PADDING_PX
+    window.innerWidth - railRect.left - menuRect.width - VIEWPORT_PADDING_PX
   );
   const maxTop = Math.max(
     VIEWPORT_PADDING_PX,
-    window.innerHeight - paneRect.top - menuRect.height - VIEWPORT_PADDING_PX
+    window.innerHeight - railRect.top - menuRect.height - VIEWPORT_PADDING_PX
   );
 
   sessionMenuStyle.value = {
@@ -71,11 +71,11 @@ const handleSessionContextMenu = (event: MouseEvent, session: SessionItem) => {
   event.preventDefault();
   event.stopPropagation();
 
-  const paneRect = sessionPaneRef.value?.getBoundingClientRect();
+  const railRect = leftRailRef.value?.getBoundingClientRect();
   sessionMenu.value = {
     sessionId: session.id,
-    x: paneRect ? event.clientX - paneRect.left : event.clientX,
-    y: paneRect ? event.clientY - paneRect.top + MENU_GAP_PX : event.clientY
+    x: railRect ? event.clientX - railRect.left : event.clientX,
+    y: railRect ? event.clientY - railRect.top + MENU_GAP_PX : event.clientY
   };
 
   void nextTick(updateSessionMenuPosition);
@@ -114,7 +114,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside class="left-rail">
+  <aside ref="leftRailRef" class="left-rail">
     <div class="brand-block">
       <div class="brand-mark">
         <SquareTerminal :size="16" />
@@ -125,7 +125,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div ref="sessionPaneRef" class="session-pane">
+    <div class="session-pane">
       <div class="search-box">
         <Search :size="16" class="search-icon" />
         <input
@@ -182,20 +182,21 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </EmptyStatePanel>
-
-      <div
-        v-if="sessionMenu"
-        ref="sessionMenuRef"
-        class="tab-context-menu"
-        :style="sessionMenuStyle"
-        @click.stop
-      >
-        <button class="tab-context-item" @click="openDeleteConfirm">
-          <MoreHorizontal :size="10" />
-          <span>{{ t('deleteSessionMenu') }}</span>
-        </button>
-      </div>
     </div>
+
+    <div
+      v-if="sessionMenu"
+      ref="sessionMenuRef"
+      class="tab-context-menu"
+      :style="sessionMenuStyle"
+      @click.stop
+    >
+      <button class="tab-context-item" @click="openDeleteConfirm">
+        <MoreHorizontal :size="10" />
+        <span>{{ t('deleteSessionMenu') }}</span>
+      </button>
+    </div>
+
     <RemoteExplorerPane />
     <SessionDeleteModal
       :open="Boolean(deleteConfirmTarget)"
@@ -208,6 +209,7 @@ onBeforeUnmount(() => {
 
 <style scoped lang="scss">
 .left-rail {
+  position: relative;
   display: grid;
   min-height: 0;
   grid-template-rows: auto minmax(220px, 1fr) minmax(220px, 0.9fr) auto;
