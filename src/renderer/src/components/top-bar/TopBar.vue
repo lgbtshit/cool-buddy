@@ -140,3 +140,103 @@ onBeforeUnmount(() => {
     </div>
   </header>
 </template>
+
+<style scoped lang="scss">
+.topbar {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px 0 8px;
+  border-bottom: 1px solid rgba(58, 73, 74, 0.55);
+  background: rgba(19, 19, 22, 0.82);
+  backdrop-filter: blur(16px);
+}
+
+.tab-strip,
+.topbar-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-strip {
+  position: relative;
+  flex: 1;
+  overflow: visible;
+}
+
+.top-tab {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px;
+  border: 0;
+  border-top: 2px solid transparent;
+  background: transparent;
+  color: rgba(185, 202, 202, 0.82);
+  font-size: 12px;
+  cursor: pointer;
+
+  &.active {
+    border-top-color: var(--cyan);
+    background: rgba(53, 52, 56, 0.9);
+    color: var(--cyan-soft);
+  }
+}
+
+.tab-context-menu {
+  position: absolute;
+  z-index: 40;
+  min-width: 132px;
+  padding: 6px;
+  border: 1px solid rgba(58, 73, 74, 0.6);
+  border-radius: 6px;
+  background: rgba(19, 19, 22, 0.98);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+}
+
+.tab-context-item {
+  display: flex;
+  width: 100%;
+  min-height: 24px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(228, 225, 230, 0.92);
+  font-size: 9px;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(53, 52, 56, 0.8);
+    color: var(--cyan-soft);
+  }
+}
+
+.connection-pill {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid rgba(58, 73, 74, 0.4);
+  border-radius: 999px;
+  background: rgba(14, 14, 17, 0.72);
+  color: rgba(228, 225, 230, 0.88);
+  font-size: 12px;
+}
+
+.pulse-dot {
+  color: #10b981;
+  fill: currentColor;
+  animation: pulse 1.8s infinite;
+}
+</style>

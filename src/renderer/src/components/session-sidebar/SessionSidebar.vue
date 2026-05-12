@@ -205,3 +205,182 @@ onBeforeUnmount(() => {
     />
   </aside>
 </template>
+
+<style scoped lang="scss">
+.left-rail {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(220px, 1fr) minmax(220px, 0.9fr) auto;
+  border-right: 1px solid rgba(58, 73, 74, 0.7);
+  background: rgba(27, 27, 30, 0.92);
+}
+
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid rgba(58, 73, 74, 0.55);
+
+  h1 {
+    color: var(--cyan);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  p {
+    margin-top: 2px;
+    color: rgba(185, 202, 202, 0.7);
+    font-size: 11px;
+  }
+}
+
+.brand-mark {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: var(--cyan);
+}
+
+.session-pane {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(58, 73, 74, 0.35);
+}
+
+.search-box {
+  position: relative;
+  margin-bottom: 20px;
+
+  input {
+    width: 100%;
+    height: 36px;
+    padding: 0 12px 0 34px;
+    border: 1px solid var(--field-border);
+    border-radius: 4px;
+    background: var(--field-bg);
+    color: var(--text);
+    font-size: 13px;
+
+    &:focus-visible {
+      border-color: var(--field-border-strong);
+      background: var(--field-bg-elevated);
+      box-shadow: var(--field-shadow-focus);
+    }
+
+    &:hover {
+      border-color: rgba(99, 247, 255, 0.24);
+    }
+  }
+}
+
+.search-icon {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  color: rgba(185, 202, 202, 0.7);
+}
+
+.session-group + .session-group {
+  margin-top: 20px;
+}
+
+.session-item {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  padding: 0 10px 0 12px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: rgba(228, 225, 230, 0.88);
+  cursor: pointer;
+  transition: background-color 140ms ease;
+
+  &:hover {
+    background: rgba(53, 52, 56, 0.55);
+  }
+
+  &.active {
+    border-left-color: var(--cyan);
+    background: rgba(53, 52, 56, 0.8);
+    color: var(--cyan-soft);
+  }
+}
+
+.session-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-name {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-type,
+.session-action {
+  opacity: 0.75;
+}
+
+.session-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(132, 148, 149, 0.6);
+
+  &[data-state='online'] {
+    background: #10b981;
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.35);
+  }
+
+  &[data-state='warning'] {
+    background: var(--yellow);
+  }
+}
+
+.tab-context-menu {
+  position: absolute;
+  z-index: 40;
+  min-width: 132px;
+  padding: 6px;
+  border: 1px solid rgba(58, 73, 74, 0.6);
+  border-radius: 6px;
+  background: rgba(19, 19, 22, 0.98);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+}
+
+.tab-context-item {
+  display: flex;
+  width: 100%;
+  min-height: 24px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(228, 225, 230, 0.92);
+  font-size: 9px;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(53, 52, 56, 0.8);
+    color: var(--cyan-soft);
+  }
+}
+</style>

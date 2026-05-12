@@ -356,3 +356,84 @@ onBeforeUnmount(() => {
     />
   </main>
 </template>
+
+<style scoped lang="scss">
+.console-shell {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 32px;
+  width: 100%;
+  height: 100%;
+}
+
+.main-stage {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 52px minmax(0, 1fr);
+}
+
+.workspace {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  background: var(--bg-low);
+}
+
+.terminal-stack {
+  display: grid;
+  min-height: 0;
+  gap: 10px;
+  padding: 10px;
+  grid-template-rows: minmax(0, 1fr) 38%;
+}
+
+.status-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-top: 1px solid rgba(58, 73, 74, 0.45);
+  background: rgba(14, 14, 17, 0.96);
+  color: rgba(228, 225, 230, 0.8);
+  font-size: 12px;
+}
+
+.footer-actions {
+  display: flex;
+  gap: 10px;
+
+  button {
+    padding: 4px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(185, 202, 202, 0.82);
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(53, 52, 56, 0.55);
+    }
+  }
+}
+
+@media (max-width: 1500px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .console-shell {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .inspector-rail {
+    display: none;
+  }
+}
+</style>

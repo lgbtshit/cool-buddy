@@ -84,3 +84,38 @@ function formatMemoryGb(valueMb: number): string {
     </section>
   </div>
 </template>
+
+<style scoped lang="scss">
+.metrics-detail-modal {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.metrics-detail-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.metrics-detail-row {
+  display: grid;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(58, 73, 74, 0.28);
+  border-radius: 6px;
+  background: rgba(14, 14, 17, 0.74);
+  grid-template-columns: 92px minmax(0, 1fr);
+
+  span {
+    color: rgba(185, 202, 202, 0.72);
+    font-size: 12px;
+  }
+
+  strong {
+    min-width: 0;
+    color: rgba(228, 225, 230, 0.94);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+}
+</style>

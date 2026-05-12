@@ -413,3 +413,189 @@ async function submitRename(entry: RemoteEntry) {
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.explorer-pane {
+  min-height: 0;
+  padding: 14px 16px;
+}
+
+.explorer-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.remote-explorer-pane {
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+
+  &.is-drop-active {
+    background: rgba(18, 28, 30, 0.55);
+    box-shadow: inset 0 0 0 1px rgba(99, 247, 255, 0.45);
+  }
+}
+
+.hidden-upload-input {
+  display: none;
+}
+
+.remote-explorer-content {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.remote-explorer-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  padding-top: 10px;
+}
+
+.remote-path-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-bottom: 10px;
+  background: rgba(27, 27, 30, 0.94);
+  backdrop-filter: blur(10px);
+}
+
+.remote-path-form {
+  display: flex;
+  gap: 8px;
+}
+
+.remote-path-input {
+  height: 36px;
+  flex: 1;
+  padding: 0 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 4px;
+  background: rgba(14, 14, 17, 0.72);
+  color: rgba(228, 225, 230, 0.88);
+  font-size: 12px;
+
+  &:focus-visible {
+    border-color: var(--field-border-strong);
+    background: var(--field-bg-elevated);
+    box-shadow: var(--field-shadow-focus);
+  }
+
+  &:hover {
+    border-color: rgba(99, 247, 255, 0.24);
+  }
+}
+
+.remote-path-up-btn {
+  flex: 0 0 auto;
+}
+
+.remote-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.remote-entry-row {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(53, 52, 56, 0.34);
+  color: rgba(228, 225, 230, 0.88);
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(53, 52, 56, 0.62);
+  }
+
+  &.is-selected {
+    background: rgba(0, 220, 229, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(99, 247, 255, 0.32);
+  }
+}
+
+.remote-entry-main,
+.remote-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.remote-entry-main {
+  min-width: 0;
+}
+
+.remote-entry-name {
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &.is-selected:hover {
+    color: var(--cyan-soft);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
+.remote-entry-rename-input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid rgba(99, 247, 255, 0.32);
+  border-radius: 4px;
+  background: rgba(14, 14, 17, 0.82);
+  color: rgba(228, 225, 230, 0.92);
+  font-size: 12px;
+
+  &:focus-visible {
+    border-color: var(--field-border-strong);
+    box-shadow: var(--field-shadow-focus);
+  }
+}
+
+.remote-preview {
+  padding-top: 10px;
+  border-top: 1px solid rgba(58, 73, 74, 0.35);
+}
+
+.remote-preview-header {
+  margin-bottom: 8px;
+  color: rgba(185, 202, 202, 0.82);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.remote-preview-body {
+  max-height: 132px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(58, 73, 74, 0.3);
+  border-radius: 4px;
+  background: rgba(14, 14, 17, 0.74);
+  color: rgba(228, 225, 230, 0.88);
+  font-family: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>

@@ -52,3 +52,9 @@ const { t } = useAppCopy();
     </section>
   </div>
 </template>
+
+<style scoped lang="scss">
+.log-settings-modal {
+  width: min(420px, calc(100vw - 32px));
+}
+</style>

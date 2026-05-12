@@ -182,3 +182,127 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.logs-shell {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.accent {
+  color: var(--green);
+}
+
+.log-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: rgba(185, 202, 202, 0.62);
+}
+
+.pause-pill {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(53, 52, 56, 0.8);
+  color: rgba(228, 225, 230, 0.78);
+  font-size: 10px;
+
+  &.active {
+    background: rgba(16, 185, 129, 0.16);
+    color: #8df5c8;
+  }
+}
+
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 0;
+}
+
+.log-path-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 4px;
+  background: rgba(14, 14, 17, 0.72);
+  color: rgba(228, 225, 230, 0.88);
+  font-size: 12px;
+
+  &:focus-visible {
+    border-color: var(--field-border-strong);
+    background: var(--field-bg-elevated);
+    box-shadow: var(--field-shadow-focus);
+  }
+
+  &:hover {
+    border-color: rgba(99, 247, 255, 0.24);
+  }
+}
+
+.log-line-limit {
+  min-width: 38px;
+  height: 34px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid rgba(58, 73, 74, 0.28);
+  border-radius: 4px;
+  background: rgba(24, 29, 32, 0.78);
+  color: rgba(185, 202, 202, 0.82);
+  font-size: 11px;
+  line-height: 32px;
+  text-align: center;
+}
+
+.log-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 12px 14px 14px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.log-error {
+  margin-bottom: 12px;
+}
+
+.log-stream {
+  display: block;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(58, 73, 74, 0.3);
+  border-radius: 4px;
+  background: rgba(14, 14, 17, 0.88);
+  color: rgba(228, 225, 230, 0.88);
+  font-family: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: rgba(185, 202, 202, 0.48);
+  font-style: italic;
+}
+
+.waiting-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(105, 246, 185, 0.75);
+  animation: pulse 1.8s infinite;
+}
+</style>

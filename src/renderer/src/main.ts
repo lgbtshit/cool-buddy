@@ -3,7 +3,7 @@ import '@fontsource/noto-sans-sc/500.css';
 import '@fontsource/noto-sans-sc/700.css';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
-import './assets/main.css';
+import './assets/main.scss';
 
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
