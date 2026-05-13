@@ -26,6 +26,32 @@ const baseMessages = {
     noSessionsHint:
       '\u5148\u65b0\u5efa\u4e00\u4e2a SSH \u4f1a\u8bdd\uff0c\u8fd9\u4e2a\u5de5\u4f5c\u53f0\u5c31\u4f1a\u6d3b\u8d77\u6765\u3002',
     createSession: '\u65b0\u5efa\u4f1a\u8bdd',
+    sessionAuthDescription:
+      '\u4fdd\u5b58\u8fd9\u53f0\u4e3b\u673a\u7684\u8ba4\u8bc1\u65b9\u5f0f\uff0c\u4e0b\u6b21\u8fde\u63a5\u65f6\u5c31\u4e0d\u7528\u518d\u4e34\u65f6\u8865\u586b\u3002',
+    sessionAuthTitle: '\u8ba4\u8bc1\u65b9\u5f0f',
+    sessionAuthHint:
+      '\u670d\u52a1\u5668\u8fd8\u5728\u7528\u5bc6\u7801\u5c31\u9009\u5bc6\u7801\uff0c\u5982\u679c\u5df2\u7ecf\u4fe1\u4efb\u4f60\u7684\u516c\u94a5\uff0c\u5c31\u76f4\u63a5\u590d\u7528\u672c\u673a SSH \u5bc6\u94a5\u3002',
+    sessionAuthPassword: '\u5bc6\u7801',
+    sessionAuthPasswordHint:
+      '\u9002\u5408\u8fd8\u9700\u8981\u5bc6\u7801\u767b\u5f55\u7684\u4e3b\u673a\uff0c\u4f1a\u8bdd\u4f1a\u8bb0\u4f4f\u8fd9\u4e2a\u5bc6\u7801\u3002',
+    sessionAuthSystemKey: '\u7cfb\u7edf SSH \u5bc6\u94a5',
+    sessionAuthSystemKeyHint:
+      '\u4f18\u5148\u5c1d\u8bd5\u672c\u673a ssh-agent \u548c ~/.ssh \u4e0b\u7684\u9ed8\u8ba4\u79c1\u94a5\uff0c\u5fc5\u8981\u65f6\u518d\u6307\u5b9a\u7279\u5b9a\u79c1\u94a5\u6587\u4ef6\u3002',
+    sessionAgentAvailable: 'Agent \u53ef\u7528',
+    sessionAgentUnavailable: '\u672a\u68c0\u6d4b\u5230 Agent',
+    sessionDefaultKeyFound: '\u5df2\u627e\u5230\u9ed8\u8ba4\u79c1\u94a5',
+    sessionDefaultKeyMissing: '\u672a\u627e\u5230\u9ed8\u8ba4\u79c1\u94a5',
+    sessionKeySourceDefault: '\u7cfb\u7edf\u9ed8\u8ba4\u4f4d\u7f6e',
+    sessionKeySourceCustom: '\u81ea\u5b9a\u4e49\u79c1\u94a5',
+    sessionKeySourceDefaultHint:
+      'cool-buddy \u4f1a\u5148\u8bd5\u672c\u673a SSH agent\uff0c\u518d\u8bd5 ~/.ssh \u76ee\u5f55\u4e0b\u7684\u5e38\u89c1\u79c1\u94a5\u3002',
+    sessionKeySourceCustomHint:
+      '\u5982\u679c\u8fd9\u53f0\u4e3b\u673a\u4f7f\u7528\u975e\u9ed8\u8ba4\u79c1\u94a5\uff0c\u6216\u8005\u4f60\u60f3\u7528\u72ec\u7acb\u7684\u90e8\u7f72\u8eab\u4efd\uff0c\u5c31\u5728\u8fd9\u91cc\u6307\u5b9a\u6587\u4ef6\u3002',
+    sessionDefaultKeySummary:
+      '\u6682\u65f6\u6ca1\u6709\u68c0\u6d4b\u5230\u53ef\u8bfb\u7684\u9ed8\u8ba4\u79c1\u94a5\uff0c\u4f60\u4ecd\u7136\u53ef\u4ee5\u4f7f\u7528 ssh-agent\uff0c\u6216\u5207\u6362\u4e3a\u81ea\u5b9a\u4e49\u79c1\u94a5\u6587\u4ef6\u3002',
+    sessionPrivateKeyPath: '\u79c1\u94a5\u8def\u5f84',
+    sessionPrivateKeyPassphrase: '\u79c1\u94a5\u53e3\u4ee4',
+    browsePrivateKey: '\u9009\u62e9\u79c1\u94a5',
     createFirstSession: '\u521b\u5efa\u7b2c\u4e00\u4e2a\u4f1a\u8bdd',
     saveSession: '\u4fdd\u5b58\u4f1a\u8bdd',
     sessionName: '\u4f1a\u8bdd\u540d\u79f0',
@@ -176,6 +202,31 @@ const baseMessages = {
     noSessions: 'No sessions yet',
     noSessionsHint: 'Create your first SSH session to bring this workspace to life.',
     createSession: 'New Session',
+    sessionAuthDescription:
+      'Save how this host should authenticate so future connections can start without extra setup.',
+    sessionAuthTitle: 'Authentication',
+    sessionAuthHint:
+      'Use a password when the server expects one, or reuse your local SSH keys when the server already trusts your public key.',
+    sessionAuthPassword: 'Password',
+    sessionAuthPasswordHint: 'Store a password for hosts that still use password login.',
+    sessionAuthSystemKey: 'System SSH Key',
+    sessionAuthSystemKeyHint:
+      'Prefer your local ssh-agent and default ~/.ssh keys before asking for a manual private key file.',
+    sessionAgentAvailable: 'Agent Ready',
+    sessionAgentUnavailable: 'No Agent',
+    sessionDefaultKeyFound: 'Default Key Found',
+    sessionDefaultKeyMissing: 'No Default Key',
+    sessionKeySourceDefault: 'Default Locations',
+    sessionKeySourceCustom: 'Custom Private Key',
+    sessionKeySourceDefaultHint:
+      'cool-buddy will try your system SSH agent first, then the common private key files under ~/.ssh.',
+    sessionKeySourceCustomHint:
+      'Choose a specific private key when this host uses a non-default key or a separate deployment identity.',
+    sessionDefaultKeySummary:
+      'No readable default private key was detected yet. You can still use ssh-agent or switch to a custom private key file.',
+    sessionPrivateKeyPath: 'Private Key Path',
+    sessionPrivateKeyPassphrase: 'Key Passphrase',
+    browsePrivateKey: 'Choose Key',
     createFirstSession: 'Create First Session',
     saveSession: 'Save Session',
     sessionName: 'Session Name',

@@ -21,8 +21,11 @@ import type {
   RemoteDirectory,
   RemoteEntry,
   SessionDraft,
+  SessionAuthMethod,
   SessionGroup,
   SessionItem,
+  SshAuthCapabilities,
+  SshKeySource,
   SystemMetrics,
   TabMenuState
 } from '../types/ssh-console';
@@ -212,23 +215,98 @@ function getDefaultAgentModelName(providerCode: AgentProviderCode): string {
   return DEFAULT_MODEL_BY_PROVIDER[providerCode] ?? DEFAULT_MODEL_BY_PROVIDER.custom;
 }
 
-function createDefaultForm(): ConnectionForm {
+/**
+ * Function: createDefaultSshAuthCapabilities
+ * Purpose:
+ *   Creates the initial local SSH capability snapshot used before the main
+ *   process reports whether a system agent or default private keys are
+ *   available.
+ * Parameters:
+ *   None.
+ * Returns:
+ *   A conservative capability object that defaults new sessions to password
+ *   authentication until real capability data is loaded.
+ * Example:
+ *   Initial state -> no agent, no detected keys, recommended auth is
+ *   "password".
+ */
+function createDefaultSshAuthCapabilities(): SshAuthCapabilities {
+  return {
+    hasAgent: false,
+    detectedDefaultKeyPaths: [],
+    defaultKeyCandidates: [],
+    recommendedAuthMethod: 'password'
+  };
+}
+
+/**
+ * Function: createDefaultForm
+ * Purpose:
+ *   Creates the default live connection form used by the active SSH session.
+ * Parameters:
+ *   authMethod:
+ *     The preferred authentication method to preselect for the form.
+ *   keySource:
+ *     The preferred SSH key source to preselect when key authentication is in
+ *     use.
+ * Returns:
+ *   A new connection form object with empty credentials and the provided auth
+ *   defaults.
+ * Example:
+ *   `createDefaultForm('systemKey', 'default')` creates a blank form that will
+ *   try the local SSH agent and default `~/.ssh` keys before asking for a
+ *   custom key path.
+ */
+function createDefaultForm(
+  authMethod: SessionAuthMethod = 'password',
+  keySource: SshKeySource = 'default'
+): ConnectionForm {
   return {
     host: '',
     port: 22,
     username: '',
-    password: ''
+    password: '',
+    authMethod,
+    keySource,
+    privateKeyPath: '',
+    passphrase: ''
   };
 }
 
-function createDefaultSessionDraft(): SessionDraft {
+/**
+ * Function: createDefaultSessionDraft
+ * Purpose:
+ *   Creates the default session draft used by the "new session" modal,
+ *   including the preferred authentication defaults inferred from local SSH
+ *   capabilities.
+ * Parameters:
+ *   authMethod:
+ *     The preferred authentication method to preselect for the new session.
+ *   keySource:
+ *     The preferred SSH key source to preselect when key authentication is in
+ *     use.
+ * Returns:
+ *   A fresh session draft object with empty connection details and the provided
+ *   auth defaults.
+ * Example:
+ *   `createDefaultSessionDraft('systemKey', 'default')` yields a new draft that
+ *   assumes the user wants to reuse local SSH keys.
+ */
+function createDefaultSessionDraft(
+  authMethod: SessionAuthMethod = 'password',
+  keySource: SshKeySource = 'default'
+): SessionDraft {
   return {
     name: '',
     group: 'production',
     host: '',
     port: 22,
     username: '',
-    password: ''
+    password: '',
+    authMethod,
+    keySource,
+    privateKeyPath: '',
+    passphrase: ''
   };
 }
 
@@ -374,6 +452,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   let metricsRequestPending = false;
   let liveMetricsRequestPending = false;
   let latencyRequestPending = false;
+  const sshAuthCapabilities = ref<SshAuthCapabilities>(createDefaultSshAuthCapabilities());
   const form = ref<ConnectionForm>(createDefaultForm());
   const sessionDraft = ref<SessionDraft>(createDefaultSessionDraft());
 
@@ -421,7 +500,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       sessionDraft.value.name.trim() &&
       sessionDraft.value.host.trim() &&
       sessionDraft.value.username.trim() &&
-      sessionDraft.value.port
+      sessionDraft.value.port &&
+      (sessionDraft.value.authMethod !== 'password' || sessionDraft.value.password !== '') &&
+      (sessionDraft.value.keySource !== 'custom' || sessionDraft.value.privateKeyPath.trim())
     );
   });
 
@@ -487,6 +568,44 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     );
   }
 
+  /**
+   * Function: syncSessionDraftAuthDefaults
+   * Purpose:
+   *   Aligns the new-session draft with the locally recommended SSH
+   *   authentication defaults so the modal can open in the most likely usable
+   *   mode for the current machine.
+   * Parameters:
+   *   None.
+   * Returns:
+   *   None. Mutates `sessionDraft.value` in-place.
+   * Example:
+   *   If a local SSH agent is available, the draft switches to
+   *   `authMethod: 'systemKey'` and `keySource: 'default'`.
+   */
+  function syncSessionDraftAuthDefaults() {
+    const preferredAuthMethod = sshAuthCapabilities.value.recommendedAuthMethod;
+    sessionDraft.value.authMethod = preferredAuthMethod;
+    sessionDraft.value.keySource = 'default';
+  }
+
+  /**
+   * Function: loadSshAuthCapabilities
+   * Purpose:
+   *   Loads the current machine's SSH authentication capabilities from the main
+   *   process so the UI can recommend password auth or local key auth
+   *   intelligently.
+   * Parameters:
+   *   None.
+   * Returns:
+   *   A promise that resolves after `sshAuthCapabilities` has been refreshed.
+   * Example:
+   *   When a running SSH agent and `~/.ssh/id_ed25519` are detected, the store
+   *   records both and later opens the session modal in system-key mode.
+   */
+  async function loadSshAuthCapabilities() {
+    sshAuthCapabilities.value = await window.api.ssh.getAuthCapabilities();
+  }
+
   function cacheAgentProviderDraft(settings: AgentProviderSettings) {
     agentProviderDrafts.value = {
       ...agentProviderDrafts.value,
@@ -514,19 +633,41 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
   function resetActiveSession() {
     activeSessionId.value = '';
-    form.value = createDefaultForm();
+    form.value = createDefaultForm(sshAuthCapabilities.value.recommendedAuthMethod, 'default');
     agentRuntime.value = createDefaultAgentStateSnapshot();
     status.value = 'idle';
     statusMessage.value = t('ready');
   }
 
+  /**
+   * Function: selectSession
+   * Purpose:
+   *   Makes a saved session active, mirrors its connection details into the
+   *   live connection form, and optionally ensures the session is visible as an
+   *   open tab.
+   * Parameters:
+   *   session:
+   *     The saved session to activate.
+   *   options:
+   *     Optional tab behavior override. When `openTab` is false, the function
+   *     only updates the active session state.
+   * Returns:
+   *   None. Mutates the active session and form state in-place.
+   * Example:
+   *   Selecting a session saved with `authMethod: 'systemKey'` restores its key
+   *   mode, key source, custom private key path, and passphrase into the form.
+   */
   function selectSession(session: SessionItem, options?: { openTab?: boolean }) {
     activeSessionId.value = session.id;
     form.value = {
       host: session.host,
       port: session.port,
       username: session.username,
-      password: session.password
+      password: session.password,
+      authMethod: session.authMethod,
+      keySource: session.keySource,
+      privateKeyPath: session.privateKeyPath,
+      passphrase: session.passphrase
     };
 
     if (options?.openTab !== false) {
@@ -574,7 +715,83 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   }
 
   function resetSessionDraft() {
-    sessionDraft.value = createDefaultSessionDraft();
+    sessionDraft.value = createDefaultSessionDraft(
+      sshAuthCapabilities.value.recommendedAuthMethod,
+      'default'
+    );
+  }
+
+  /**
+   * Function: setSessionDraftAuthMethod
+   * Purpose:
+   *   Updates the new-session draft authentication method and normalizes
+   *   related fields so hidden credential inputs do not accidentally leak into
+   *   a different auth mode.
+   * Parameters:
+   *   authMethod:
+   *     The authentication method chosen in the session modal.
+   * Returns:
+   *   None. Mutates `sessionDraft.value` in-place.
+   * Example:
+   *   Switching from `password` to `systemKey` clears the password field and
+   *   defaults the key source back to `default`.
+   */
+  function setSessionDraftAuthMethod(authMethod: SessionAuthMethod) {
+    sessionDraft.value.authMethod = authMethod;
+
+    if (authMethod === 'password') {
+      sessionDraft.value.keySource = 'default';
+      sessionDraft.value.privateKeyPath = '';
+      sessionDraft.value.passphrase = '';
+      return;
+    }
+
+    sessionDraft.value.password = '';
+    sessionDraft.value.keySource = 'default';
+  }
+
+  /**
+   * Function: setSessionDraftKeySource
+   * Purpose:
+   *   Updates the SSH key source for the new-session draft and clears any stale
+   *   custom key metadata when the user returns to the default system-key
+   *   strategy.
+   * Parameters:
+   *   keySource:
+   *     The selected SSH key source.
+   * Returns:
+   *   None. Mutates `sessionDraft.value` in-place.
+   * Example:
+   *   Switching from `custom` back to `default` clears the custom private key
+   *   path and passphrase fields.
+   */
+  function setSessionDraftKeySource(keySource: SshKeySource) {
+    sessionDraft.value.keySource = keySource;
+
+    if (keySource === 'default') {
+      sessionDraft.value.privateKeyPath = '';
+      sessionDraft.value.passphrase = '';
+    }
+  }
+
+  /**
+   * Function: chooseSessionDraftPrivateKey
+   * Purpose:
+   *   Opens the native private-key picker and copies the chosen path into the
+   *   new-session draft when the user opts into a custom SSH key file.
+   * Parameters:
+   *   None.
+   * Returns:
+   *   A promise that resolves after the picker result has been applied.
+   * Example:
+   *   After the user chooses `C:\Users\<user>\.ssh\work-key`, the draft stores
+   *   that path in `privateKeyPath`.
+   */
+  async function chooseSessionDraftPrivateKey() {
+    const result = await window.api.ssh.pickPrivateKey();
+    if (!result.canceled && result.path) {
+      sessionDraft.value.privateKeyPath = result.path;
+    }
   }
 
   function applyAgentProviderCode(providerCode: AgentProviderCode) {
@@ -810,8 +1027,24 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     }
   }
 
-  function openSessionModal() {
+  /**
+   * Function: openSessionModal
+   * Purpose:
+   *   Opens the new-session modal after refreshing local SSH capabilities so
+   *   the form can default to password auth or system-key auth intelligently.
+   * Parameters:
+   *   None.
+   * Returns:
+   *   A promise that resolves after the modal state and draft defaults have
+   *   been prepared.
+   * Example:
+   *   When a local SSH agent is available, opening the modal preselects
+   *   `systemKey` authentication.
+   */
+  async function openSessionModal() {
+    await loadSshAuthCapabilities();
     resetSessionDraft();
+    syncSessionDraftAuthDefaults();
     sessionModalOpen.value = true;
   }
 
@@ -855,9 +1088,27 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
     openTabIds.value = [];
     activeSessionId.value = '';
+    await loadSshAuthCapabilities();
+    resetSessionDraft();
+    syncSessionDraftAuthDefaults();
     sessionModalOpen.value = true;
   }
 
+  /**
+   * Function: saveSession
+   * Purpose:
+   *   Persists the current new-session draft, including its chosen SSH
+   *   authentication strategy, then selects the saved session in the workbench.
+   * Parameters:
+   *   None.
+   * Returns:
+   *   A promise that resolves to the created session, or `null` when the draft
+   *   is not currently valid.
+   * Example:
+   *   Saving a session with `authMethod: 'systemKey'` and
+   *   `keySource: 'custom'` stores the custom private key path and passphrase
+   *   alongside the host metadata.
+   */
   async function saveSession() {
     if (!canSaveSession.value) return null;
 
@@ -867,7 +1118,11 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       host: sessionDraft.value.host.trim(),
       port: Number(sessionDraft.value.port),
       username: sessionDraft.value.username.trim(),
-      password: sessionDraft.value.password
+      password: sessionDraft.value.password,
+      authMethod: sessionDraft.value.authMethod,
+      keySource: sessionDraft.value.keySource,
+      privateKeyPath: sessionDraft.value.privateKeyPath.trim(),
+      passphrase: sessionDraft.value.passphrase
     });
 
     sessions.value = [...sessions.value, created];
@@ -921,6 +1176,21 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     statusMessage.value = t('ready');
   }
 
+  /**
+   * Function: connect
+   * Purpose:
+   *   Initiates the active SSH connection using the current live connection
+   *   form, which may authenticate with a password, the system agent/default
+   *   keys, or a user-selected private key file.
+   * Parameters:
+   *   None.
+   * Returns:
+   *   A promise that resolves after the SSH session, metrics, apps, and remote
+   *   directory state are ready.
+   * Example:
+   *   When the form is set to `systemKey` with a custom key path, the connect
+   *   payload includes that path and optional passphrase instead of a password.
+   */
   async function connect() {
     status.value = 'connecting';
     statusMessage.value = `${t('sessionConnecting')} ${form.value.host}:${form.value.port}...`;
@@ -932,7 +1202,11 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       host: form.value.host,
       port: Number(form.value.port),
       username: form.value.username,
-      password: form.value.password
+      password: form.value.password,
+      authMethod: form.value.authMethod,
+      keySource: form.value.keySource,
+      privateKeyPath: form.value.privateKeyPath.trim(),
+      passphrase: form.value.passphrase
     });
 
     status.value = 'connected';
@@ -1437,6 +1711,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     applyAgentProviderCode,
     canSaveSession,
     canSaveAgentSettings,
+    chooseSessionDraftPrivateKey,
     hasAgentProviderConfigured,
     ingestHarmlessAgentEvent,
     closeSessionModal,
@@ -1463,6 +1738,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     loadLiveMetrics,
     loadLatency,
     loadAgentSettings,
+    loadSshAuthCapabilities,
     loadRemoteApps,
     loadSystemMetrics,
     loadSessions,
@@ -1496,6 +1772,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     saveAgentSettings,
     searchQuery,
     selectSession,
+    setSessionDraftAuthMethod,
+    setSessionDraftKeySource,
     setLogTailPath,
     setLogTailLineLimit,
     setLogTailStatus,
@@ -1504,6 +1782,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     sessionModalOpen,
     sessions,
     sessionsLoaded,
+    sshAuthCapabilities,
     setAiInput,
     setConnectError,
     setSearchQuery,

@@ -1,61 +1,61 @@
-import { app, Menu, Tray, nativeImage } from 'electron'
-import trayIconPath from '../../../resources/tray-icon.png?asset'
-import { getMainWindow } from '../state/main-window'
-import { createMainWindow } from '../windows/create-main-window'
+import { app, Menu, Tray, nativeImage } from 'electron';
+import trayIconPath from '../../../resources/tray-icon.png?asset';
+import { getMainWindow } from '../state/main-window';
+import { createMainWindow } from '../windows/create-main-window';
 
-let tray: Tray | null = null
+let tray: Tray | null = null;
 
 function showMainWindow() {
-  const mainWindow = getMainWindow()
+  const mainWindow = getMainWindow();
 
   if (!mainWindow || mainWindow.isDestroyed()) {
-    createMainWindow()
-    return
+    createMainWindow();
+    return;
   }
 
   if (mainWindow.isMinimized()) {
-    mainWindow.restore()
+    mainWindow.restore();
   }
 
-  mainWindow.show()
-  mainWindow.focus()
+  mainWindow.show();
+  mainWindow.focus();
 }
 
 export function createAppTray(): void {
   if (tray) {
-    return
+    return;
   }
 
-  const iconSize = process.platform === 'win32' ? 18 : 16
+  const iconSize = process.platform === 'win32' ? 18 : 16;
   const trayIcon = nativeImage.createFromPath(trayIconPath).resize({
     width: iconSize,
     height: iconSize
-  })
+  });
 
-  tray = new Tray(trayIcon)
-  tray.setToolTip('cool-buddy')
+  tray = new Tray(trayIcon);
+  tray.setToolTip('cool-buddy');
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: 'Open cool-buddy',
+        label: '打开cool~',
         click: () => showMainWindow()
       },
       {
         type: 'separator'
       },
       {
-        label: 'Quit',
+        label: '退出',
         click: () => app.quit()
       }
     ])
-  )
+  );
 
   tray.on('click', () => {
-    showMainWindow()
-  })
+    showMainWindow();
+  });
 }
 
 export function destroyAppTray(): void {
-  tray?.destroy()
-  tray = null
+  tray?.destroy();
+  tray = null;
 }

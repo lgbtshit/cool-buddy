@@ -2,11 +2,25 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import type { Locale } from '../shared/locale';
 
+type SessionAuthMethod = 'password' | 'systemKey';
+type SshKeySource = 'default' | 'custom';
+
 type SshConnectPayload = {
   host: string;
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
+};
+
+type SshAuthCapabilities = {
+  hasAgent: boolean;
+  detectedDefaultKeyPaths: string[];
+  defaultKeyCandidates: string[];
+  recommendedAuthMethod: SessionAuthMethod;
 };
 
 type SshCommandBatchPayload = {
@@ -39,6 +53,10 @@ type SessionItem = {
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
   status: 'online' | 'warning' | 'offline';
   icon: 'server' | 'database' | 'hardDrive';
 };
@@ -50,6 +68,10 @@ type CreateSessionPayload = {
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
 };
 
 type AgentProviderCode =
@@ -257,6 +279,10 @@ const api = {
   ssh: {
     connect: (payload: SshConnectPayload): Promise<{ ok: true; remotePath: string }> =>
       ipcRenderer.invoke('ssh:connect', payload),
+    getAuthCapabilities: (): Promise<SshAuthCapabilities> =>
+      ipcRenderer.invoke('ssh:get-auth-capabilities'),
+    pickPrivateKey: (): Promise<{ canceled: boolean; path: string }> =>
+      ipcRenderer.invoke('ssh:pick-private-key'),
     executeCommandBatch: (payload: SshCommandBatchPayload): Promise<{ ok: true }> =>
       ipcRenderer.invoke('ssh:execute-command-batch', payload),
     startLogTail: (payload: SshLogTailPayload): Promise<{ ok: true }> =>

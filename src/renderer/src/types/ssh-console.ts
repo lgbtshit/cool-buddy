@@ -4,6 +4,8 @@ export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnecte
 export type SessionGroup = 'production' | 'staging' | 'local';
 export type SessionStatus = 'online' | 'warning' | 'offline';
 export type SessionIcon = 'server' | 'database' | 'hardDrive';
+export type SessionAuthMethod = 'password' | 'systemKey';
+export type SshKeySource = 'default' | 'custom';
 export type AgentProviderCode =
   | 'openai'
   | 'azure-openai'
@@ -38,6 +40,10 @@ export type SessionItem = {
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
   status: SessionStatus;
   icon: SessionIcon;
 };
@@ -49,6 +55,10 @@ export type SessionDraft = {
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
 };
 
 export type ConnectionForm = {
@@ -56,6 +66,17 @@ export type ConnectionForm = {
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
+};
+
+export type SshAuthCapabilities = {
+  hasAgent: boolean;
+  detectedDefaultKeyPaths: string[];
+  defaultKeyCandidates: string[];
+  recommendedAuthMethod: SessionAuthMethod;
 };
 
 export type AgentProviderSettings = {

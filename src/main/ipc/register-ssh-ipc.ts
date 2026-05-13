@@ -1,8 +1,10 @@
 import { dialog, ipcMain, shell } from 'electron';
-import { watchFile, unwatchFile } from 'fs';
-import { basename } from 'path';
+import { spawnSync } from 'child_process';
+import { accessSync, constants, readFileSync, watchFile, unwatchFile } from 'fs';
+import { homedir } from 'os';
+import { basename, join } from 'path';
 import { Client } from 'ssh2';
-import type { ConnectConfig } from 'ssh2';
+import type { AgentAuthMethod, ConnectConfig, PasswordAuthMethod, PublicKeyAuthMethod } from 'ssh2';
 import { getAppLocale } from '../state/app-locale';
 import { getMainWindow } from '../state/main-window';
 import {
@@ -36,7 +38,12 @@ import {
 } from '../ssh/remote-files';
 import { readRemoteApps } from '../ssh/remote-apps';
 import { readLiveSystemMetrics, readSystemMetrics } from '../ssh/system-metrics';
-import type { SshCommandBatchPayload, SshConnectPayload, SshLogTailPayload } from '../shared/types';
+import type {
+  SshAuthCapabilities,
+  SshCommandBatchPayload,
+  SshConnectPayload,
+  SshLogTailPayload
+} from '../shared/types';
 
 let sshHandlersRegistered = false;
 
@@ -49,6 +56,227 @@ type OpenRemoteFileWatch = {
 };
 
 const openRemoteFileWatches = new Map<string, OpenRemoteFileWatch>();
+const DEFAULT_WINDOWS_AGENT_PIPE = '\\\\.\\pipe\\openssh-ssh-agent';
+const DEFAULT_PRIVATE_KEY_FILENAMES = ['id_ed25519', 'id_ecdsa', 'id_rsa', 'id_dsa'] as const;
+
+/**
+ * Function: getDefaultPrivateKeyCandidates
+ * Purpose:
+ *   Builds the ordered list of common default private key locations under the
+ *   current user's `~/.ssh` directory.
+ * Parameters:
+ *   None.
+ * Returns:
+ *   An ordered array of absolute candidate key paths.
+ * Example:
+ *   On Windows this may return:
+ *   `C:\Users\<user>\.ssh\id_ed25519`,
+ *   `C:\Users\<user>\.ssh\id_rsa`, ...
+ */
+function getDefaultPrivateKeyCandidates(): string[] {
+  const sshDirectory = join(homedir(), '.ssh');
+  return DEFAULT_PRIVATE_KEY_FILENAMES.map((fileName) => join(sshDirectory, fileName));
+}
+
+/**
+ * Function: getReadableDefaultPrivateKeyPaths
+ * Purpose:
+ *   Filters the common default key locations down to the private key files
+ *   that are actually present and readable on the current machine.
+ * Parameters:
+ *   None.
+ * Returns:
+ *   An ordered array of readable private key paths.
+ * Example:
+ *   If only `~/.ssh/id_ed25519` exists, the result contains that single path.
+ */
+function getReadableDefaultPrivateKeyPaths(): string[] {
+  return getDefaultPrivateKeyCandidates().filter((candidatePath) => {
+    try {
+      accessSync(candidatePath, constants.R_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Function: canUseSystemAgentSync
+ * Purpose:
+ *   Checks whether the local system SSH agent is actually usable for
+ *   authentication by asking the platform `ssh-add` client for the current key
+ *   list. This avoids optimistic but unreliable named-pipe probing on
+ *   Windows.
+ * Parameters:
+ *   None.
+ * Returns:
+ *   `true` when the local SSH agent is reachable, otherwise `false`.
+ * Example:
+ *   `ssh-add -l` returns exit code:
+ *   - `0` when keys are loaded
+ *   - `1` when the agent is reachable but has no identities
+ *   - `2` when the agent is unavailable
+ */
+function canUseSystemAgentSync(): boolean {
+  const probe = spawnSync('ssh-add', ['-l'], {
+    stdio: 'ignore',
+    windowsHide: true,
+    timeout: 2000
+  });
+
+  if (probe.error) {
+    return false;
+  }
+
+  return probe.status === 0 || probe.status === 1;
+}
+
+/**
+ * Function: getConfiguredAgentPath
+ * Purpose:
+ *   Resolves the most likely local SSH agent endpoint for the current
+ *   operating system so SSH key authentication can prefer the system agent
+ *   before falling back to direct private key usage.
+ * Parameters:
+ *   None.
+ * Returns:
+ *   A string agent endpoint understood by `ssh2`, or `null` when no sensible
+ *   agent target can be inferred.
+ * Example:
+ *   - macOS/Linux with `SSH_AUTH_SOCK` set -> that socket path
+ *   - Windows with a reachable OpenSSH agent -> `\\.\pipe\openssh-ssh-agent`
+ */
+function getConfiguredAgentPath(): string | null {
+  if (process.env.SSH_AUTH_SOCK?.trim()) {
+    return process.env.SSH_AUTH_SOCK.trim();
+  }
+
+  if (process.platform === 'win32' && canUseSystemAgentSync()) {
+    return DEFAULT_WINDOWS_AGENT_PIPE;
+  }
+
+  return null;
+}
+
+/**
+ * Function: buildSshAuthCapabilities
+ * Purpose:
+ *   Collects the local SSH authentication capabilities that the renderer uses
+ *   to present sensible defaults and helper text for new session creation.
+ * Parameters:
+ *   None.
+ * Returns:
+ *   A promise that resolves to the local SSH authentication capability
+ *   snapshot.
+ * Example:
+ *   When the machine has a running agent and `~/.ssh/id_ed25519`, the returned
+ *   capability object reports both so the UI can default to system key auth.
+ */
+async function buildSshAuthCapabilities(): Promise<SshAuthCapabilities> {
+  const detectedDefaultKeyPaths = getReadableDefaultPrivateKeyPaths();
+  const hasAgent = canUseSystemAgentSync();
+
+  return {
+    hasAgent,
+    detectedDefaultKeyPaths,
+    defaultKeyCandidates: getDefaultPrivateKeyCandidates(),
+    recommendedAuthMethod: hasAgent || detectedDefaultKeyPaths.length > 0 ? 'systemKey' : 'password'
+  };
+}
+
+/**
+ * Function: buildConnectConfig
+ * Purpose:
+ *   Converts the renderer SSH connection payload into an `ssh2` connection
+ *   configuration that supports password authentication, system agent usage,
+ *   default key discovery, and manually selected private keys.
+ * Parameters:
+ *   payload:
+ *     The renderer-provided SSH connection request.
+ * Returns:
+ *   A fully prepared `ssh2` connection configuration.
+ * Example:
+ *   - Password auth -> uses a single password auth method.
+ *   - System key/default -> tries readable default private keys under `~/.ssh`
+ *     first, then the system agent if it is actually reachable.
+ *   - System key/custom -> reads the chosen private key file and passes the
+ *     optional passphrase to `ssh2`.
+ */
+function buildConnectConfig(payload: SshConnectPayload): ConnectConfig {
+  const authMethods: Array<PasswordAuthMethod | PublicKeyAuthMethod | AgentAuthMethod> = [];
+  const connectConfig: ConnectConfig = {
+    host: payload.host,
+    port: payload.port,
+    username: payload.username,
+    keepaliveInterval: 5000,
+    keepaliveCountMax: 3,
+    tryKeyboard: false,
+    readyTimeout: 20000
+  };
+
+  if (payload.authMethod === 'password') {
+    if (!payload.password) {
+      throw new Error('Password authentication requires a password.');
+    }
+
+    authMethods.push({
+      type: 'password',
+      username: payload.username,
+      password: payload.password
+    });
+    connectConfig.password = payload.password;
+    connectConfig.authHandler = authMethods;
+    return connectConfig;
+  }
+
+  if (payload.keySource === 'custom') {
+    if (!payload.privateKeyPath.trim()) {
+      throw new Error('Please choose a private key file.');
+    }
+
+    const privateKey = readFileSync(payload.privateKeyPath.trim());
+    authMethods.push({
+      type: 'publickey',
+      username: payload.username,
+      key: privateKey,
+      ...(payload.passphrase ? { passphrase: payload.passphrase } : {})
+    });
+    connectConfig.privateKey = privateKey;
+    if (payload.passphrase) {
+      connectConfig.passphrase = payload.passphrase;
+    }
+    connectConfig.authHandler = authMethods;
+    return connectConfig;
+  }
+
+  for (const defaultKeyPath of getReadableDefaultPrivateKeyPaths()) {
+    authMethods.push({
+      type: 'publickey',
+      username: payload.username,
+      key: readFileSync(defaultKeyPath)
+    });
+  }
+
+  const agentPath = getConfiguredAgentPath();
+  if (agentPath) {
+    authMethods.push({
+      type: 'agent',
+      username: payload.username,
+      agent: agentPath
+    });
+    connectConfig.agent = agentPath;
+  }
+
+  if (authMethods.length === 0) {
+    throw new Error(
+      'No system SSH key was found. Start ssh-agent, use a default key under ~/.ssh, or choose a private key file manually.'
+    );
+  }
+
+  connectConfig.authHandler = authMethods;
+  return connectConfig;
+}
 
 function getRemoteFileDialogCopy() {
   switch (getAppLocale()) {
@@ -312,6 +540,27 @@ export function registerSshIpc(): void {
     return;
   }
 
+  ipcMain.handle('ssh:get-auth-capabilities', async () => {
+    return await buildSshAuthCapabilities();
+  });
+
+  ipcMain.handle('ssh:pick-private-key', async () => {
+    const mainWindow = getMainWindow();
+    const dialogOptions: Electron.OpenDialogOptions = {
+      title: 'Choose a private key',
+      defaultPath: join(homedir(), '.ssh'),
+      properties: ['openFile']
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+
+    return {
+      canceled: result.canceled,
+      path: result.canceled ? '' : (result.filePaths[0] ?? '')
+    };
+  });
+
   ipcMain.handle('ssh:connect', async (_event, payload: SshConnectPayload) => {
     disposeRemoteOpenFileWatches();
     disposeSsh();
@@ -395,18 +644,13 @@ export function registerSshIpc(): void {
           disposeSsh();
         });
 
-      const connectConfig: ConnectConfig = {
-        host: payload.host,
-        port: payload.port,
-        username: payload.username,
-        password: payload.password,
-        keepaliveInterval: 5000,
-        keepaliveCountMax: 3,
-        tryKeyboard: false,
-        readyTimeout: 20000
-      };
-
-      client.connect(connectConfig);
+      try {
+        client.connect(buildConnectConfig(payload));
+      } catch (error) {
+        finalizeError(
+          error instanceof Error ? error.message : 'Failed to prepare SSH authentication.'
+        );
+      }
     });
   });
 

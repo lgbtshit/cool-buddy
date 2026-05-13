@@ -1,8 +1,22 @@
+export type SessionAuthMethod = 'password' | 'systemKey';
+export type SshKeySource = 'default' | 'custom';
+
 export type SshConnectPayload = {
   host: string;
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
+};
+
+export type SshAuthCapabilities = {
+  hasAgent: boolean;
+  detectedDefaultKeyPaths: string[];
+  defaultKeyCandidates: string[];
+  recommendedAuthMethod: SessionAuthMethod;
 };
 
 export type SshCommandBatchPayload = {
@@ -35,6 +49,10 @@ export type SessionRecord = {
   port: number;
   username: string;
   password: string;
+  auth_method: SessionAuthMethod;
+  key_source: SshKeySource;
+  private_key_path: string;
+  passphrase: string;
   created_at: string;
 };
 
@@ -46,6 +64,10 @@ export type SessionItem = {
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
   status: 'online' | 'warning' | 'offline';
   icon: 'server' | 'database' | 'hardDrive';
 };
@@ -57,6 +79,10 @@ export type CreateSessionPayload = {
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
 };
 
 export type AgentProviderCode =

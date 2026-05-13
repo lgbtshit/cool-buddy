@@ -1,11 +1,25 @@
 import { ElectronAPI } from '@electron-toolkit/preload';
 import type { Locale } from '../shared/locale';
 
+type SessionAuthMethod = 'password' | 'systemKey';
+type SshKeySource = 'default' | 'custom';
+
 type SshConnectPayload = {
   host: string;
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
+};
+
+type SshAuthCapabilities = {
+  hasAgent: boolean;
+  detectedDefaultKeyPaths: string[];
+  defaultKeyCandidates: string[];
+  recommendedAuthMethod: SessionAuthMethod;
 };
 
 type SshCommandBatchPayload = {
@@ -38,6 +52,10 @@ type SessionItem = {
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
   status: 'online' | 'warning' | 'offline';
   icon: 'server' | 'database' | 'hardDrive';
 };
@@ -49,6 +67,10 @@ type CreateSessionPayload = {
   port: number;
   username: string;
   password: string;
+  authMethod: SessionAuthMethod;
+  keySource: SshKeySource;
+  privateKeyPath: string;
+  passphrase: string;
 };
 
 type AgentProviderCode =
@@ -240,6 +262,8 @@ type AppApi = {
   };
   ssh: {
     connect: (payload: SshConnectPayload) => Promise<{ ok: true; remotePath: string }>;
+    getAuthCapabilities: () => Promise<SshAuthCapabilities>;
+    pickPrivateKey: () => Promise<{ canceled: boolean; path: string }>;
     executeCommandBatch: (payload: SshCommandBatchPayload) => Promise<{ ok: true }>;
     startLogTail: (payload: SshLogTailPayload) => Promise<{ ok: true }>;
     stopLogTail: () => Promise<{ ok: true }>;

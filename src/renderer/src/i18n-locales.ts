@@ -4,6 +4,31 @@ export const localizedMessageOverrides = {
     pasteConfirmDescription:
       'Detected {count} lines of command content. Choose how to send it to the remote terminal.',
     sessionDeleteDescription: 'Delete session "{sessionName}"? This action cannot be undone.',
+    sessionAuthDescription:
+      'Save how this host should authenticate so future connections can start without extra setup.',
+    sessionAuthTitle: 'Authentication',
+    sessionAuthHint:
+      'Use a password when the server expects one, or reuse your local SSH keys when the server already trusts your public key.',
+    sessionAuthPassword: 'Password',
+    sessionAuthPasswordHint: 'Store a password for hosts that still use password login.',
+    sessionAuthSystemKey: 'System SSH Key',
+    sessionAuthSystemKeyHint:
+      'Prefer your local ssh-agent and default ~/.ssh keys before asking for a manual private key file.',
+    sessionAgentAvailable: 'Agent Ready',
+    sessionAgentUnavailable: 'No Agent',
+    sessionDefaultKeyFound: 'Default Key Found',
+    sessionDefaultKeyMissing: 'No Default Key',
+    sessionKeySourceDefault: 'Default Locations',
+    sessionKeySourceCustom: 'Custom Private Key',
+    sessionKeySourceDefaultHint:
+      'cool-buddy will try your system SSH agent first, then the common private key files under ~/.ssh.',
+    sessionKeySourceCustomHint:
+      'Choose a specific private key when this host uses a non-default key or a separate deployment identity.',
+    sessionDefaultKeySummary:
+      'No readable default private key was detected yet. You can still use ssh-agent or switch to a custom private key file.',
+    sessionPrivateKeyPath: 'Private Key Path',
+    sessionPrivateKeyPassphrase: 'Key Passphrase',
+    browsePrivateKey: 'Choose Key',
     keybindingCopySelectionTitle: 'Copy terminal selection',
     keybindingCopySelectionDetail:
       'Select text inside the terminal, then copy it to the clipboard.',

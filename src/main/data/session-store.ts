@@ -57,6 +57,80 @@ function getSessionIcon(group: SessionGroup): SessionItem['icon'] {
   return 'hardDrive';
 }
 
+/**
+ * Function: normalizeSessionAuthMethod
+ * Purpose:
+ *   Normalizes persisted session authentication values so legacy rows without
+ *   explicit auth metadata continue to work and unexpected values safely fall
+ *   back to password authentication.
+ * Parameters:
+ *   authMethod:
+ *     Raw database value for the session authentication method.
+ * Returns:
+ *   A valid `SessionItem['authMethod']` value.
+ * Example:
+ *   Input: "systemKey" -> Output: "systemKey"
+ *   Input: ""          -> Output: "password"
+ */
+function normalizeSessionAuthMethod(
+  authMethod: string | null | undefined
+): SessionItem['authMethod'] {
+  return authMethod === 'systemKey' ? 'systemKey' : 'password';
+}
+
+/**
+ * Function: normalizeSshKeySource
+ * Purpose:
+ *   Normalizes persisted SSH key source values so old rows and unexpected
+ *   values are coerced into a supported source.
+ * Parameters:
+ *   keySource:
+ *     Raw database value for the SSH key source.
+ * Returns:
+ *   A valid `SessionItem['keySource']` value.
+ * Example:
+ *   Input: "custom"  -> Output: "custom"
+ *   Input: undefined -> Output: "default"
+ */
+function normalizeSshKeySource(keySource: string | null | undefined): SessionItem['keySource'] {
+  return keySource === 'custom' ? 'custom' : 'default';
+}
+
+/**
+ * Function: ensureSessionSchema
+ * Purpose:
+ *   Applies additive schema migrations for the `sessions` table so newer SSH
+ *   authentication fields are available without breaking existing local data.
+ * Parameters:
+ *   db:
+ *     The opened SQLite database instance.
+ * Returns:
+ *   None. The function mutates the database schema in-place when columns are
+ *   missing.
+ * Example:
+ *   A database created before SSH key support gains the columns
+ *   `auth_method`, `key_source`, `private_key_path`, and `passphrase`.
+ */
+function ensureSessionSchema(db: Database.Database): void {
+  const sessionColumns = db.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>;
+
+  if (!sessionColumns.some((column) => column.name === 'auth_method')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'`);
+  }
+
+  if (!sessionColumns.some((column) => column.name === 'key_source')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN key_source TEXT NOT NULL DEFAULT 'default'`);
+  }
+
+  if (!sessionColumns.some((column) => column.name === 'private_key_path')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN private_key_path TEXT NOT NULL DEFAULT ''`);
+  }
+
+  if (!sessionColumns.some((column) => column.name === 'passphrase')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN passphrase TEXT NOT NULL DEFAULT ''`);
+  }
+}
+
 function mapSession(record: SessionRecord): SessionItem {
   return {
     id: record.id,
@@ -66,6 +140,10 @@ function mapSession(record: SessionRecord): SessionItem {
     port: record.port,
     username: record.username,
     password: record.password,
+    authMethod: normalizeSessionAuthMethod(record.auth_method),
+    keySource: normalizeSshKeySource(record.key_source),
+    privateKeyPath: record.private_key_path ?? '',
+    passphrase: record.passphrase ?? '',
     status: getSessionStatus(record.group_name),
     icon: getSessionIcon(record.group_name)
   };
@@ -130,6 +208,10 @@ export function getDatabase(): Database.Database {
       port INTEGER NOT NULL,
       username TEXT NOT NULL,
       password TEXT NOT NULL DEFAULT '',
+      auth_method TEXT NOT NULL DEFAULT 'password',
+      key_source TEXT NOT NULL DEFAULT 'default',
+      private_key_path TEXT NOT NULL DEFAULT '',
+      passphrase TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
 
@@ -151,6 +233,8 @@ export function getDatabase(): Database.Database {
     );
   `);
 
+  ensureSessionSchema(database);
+
   const settingsColumns = database
     .prepare(`PRAGMA table_info(agent_provider_settings)`)
     .all() as Array<{ name: string }>;
@@ -167,7 +251,8 @@ export function listSessions(): SessionItem[] {
   const rows = getDatabase()
     .prepare(
       `
-        SELECT id, name, group_name, host, port, username, password, created_at
+        SELECT id, name, group_name, host, port, username, password,
+               auth_method, key_source, private_key_path, passphrase, created_at
         FROM sessions
         ORDER BY datetime(created_at) ASC, rowid ASC
       `
@@ -184,11 +269,27 @@ export function createSession(payload: CreateSessionPayload): SessionItem {
     host: payload.host.trim(),
     port: Number(payload.port),
     username: payload.username.trim(),
-    password: payload.password
+    password: payload.password,
+    authMethod: normalizeSessionAuthMethod(payload.authMethod),
+    keySource: normalizeSshKeySource(payload.keySource),
+    privateKeyPath: payload.privateKeyPath.trim(),
+    passphrase: payload.passphrase
   };
 
   if (!trimmed.name || !trimmed.host || !trimmed.username || !trimmed.port) {
     throw new Error('Session fields are incomplete.');
+  }
+
+  if (trimmed.authMethod === 'password' && !trimmed.password) {
+    throw new Error('Password authentication requires a password.');
+  }
+
+  if (
+    trimmed.authMethod === 'systemKey' &&
+    trimmed.keySource === 'custom' &&
+    !trimmed.privateKeyPath
+  ) {
+    throw new Error('A custom SSH key session must include a private key path.');
   }
 
   const record: SessionRecord = {
@@ -199,14 +300,24 @@ export function createSession(payload: CreateSessionPayload): SessionItem {
     port: trimmed.port,
     username: trimmed.username,
     password: trimmed.password,
+    auth_method: trimmed.authMethod,
+    key_source: trimmed.keySource,
+    private_key_path: trimmed.privateKeyPath,
+    passphrase: trimmed.passphrase,
     created_at: new Date().toISOString()
   };
 
   getDatabase()
     .prepare(
       `
-        INSERT INTO sessions (id, name, group_name, host, port, username, password, created_at)
-        VALUES (@id, @name, @group_name, @host, @port, @username, @password, @created_at)
+        INSERT INTO sessions (
+          id, name, group_name, host, port, username, password,
+          auth_method, key_source, private_key_path, passphrase, created_at
+        )
+        VALUES (
+          @id, @name, @group_name, @host, @port, @username, @password,
+          @auth_method, @key_source, @private_key_path, @passphrase, @created_at
+        )
       `
     )
     .run(record);

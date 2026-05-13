@@ -50,7 +50,7 @@ function getManualChunk(id: string): string | undefined {
     return undefined;
   }
 
-  if (frameworkPackages.some(pkg => normalizedId.includes(`/node_modules/${pkg}/`))) {
+  if (frameworkPackages.some((pkg) => normalizedId.includes(`/node_modules/${pkg}/`))) {
     return 'framework-core';
   }
 
@@ -101,6 +101,10 @@ export default defineConfig({
       }
     },
     plugins: [vue()],
+    server: {
+      host: '0.0.0.0',
+      port: 3200
+    },
     build: {
       cssCodeSplit: true,
       rollupOptions: {
@@ -117,7 +121,7 @@ export default defineConfig({
         output: {
           entryFileNames: 'js/[name]-[hash].js',
           chunkFileNames: 'js/[name]-[hash].js',
-          assetFileNames: assetInfo => getAssetOutputPath(assetInfo.name),
+          assetFileNames: (assetInfo) => getAssetOutputPath(assetInfo.name),
           manualChunks: getManualChunk
         }
       }
