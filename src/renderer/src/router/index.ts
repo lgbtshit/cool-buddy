@@ -1,5 +1,4 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
-import SshWorkbenchView from '../views/ssh-workbench/SshWorkbenchView.vue';
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -11,7 +10,7 @@ export const router = createRouter({
     {
       path: '/ssh-workbench',
       name: 'ssh-workbench',
-      component: SshWorkbenchView
+      component: () => import('../views/ssh-workbench/SshWorkbenchView.vue')
     }
   ]
 });

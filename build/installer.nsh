@@ -4,37 +4,41 @@
 
 !macro preInit
   StrCpy $INSTDIR "$LOCALAPPDATA\Programs\cool-buddy"
-  StrCpy $CreateDesktopShortcutSelection ${BST_CHECKED}
+  !ifndef BUILD_UNINSTALLER
+    StrCpy $CreateDesktopShortcutSelection ${BST_CHECKED}
+  !endif
 !macroend
 
-Var DesktopShortcutCheckbox
-Var CreateDesktopShortcutSelection
+!ifndef BUILD_UNINSTALLER
+  Var DesktopShortcutCheckbox
+  Var CreateDesktopShortcutSelection
 
-!macro customPageAfterChangeDir
-  Page Custom DesktopShortcutPageCreate DesktopShortcutPageLeave
-!macroend
+  !macro customPageAfterChangeDir
+    Page Custom DesktopShortcutPageCreate DesktopShortcutPageLeave
+  !macroend
 
-Function DesktopShortcutPageCreate
-  nsDialogs::Create 1018
-  Pop $0
+  Function DesktopShortcutPageCreate
+    nsDialogs::Create 1018
+    Pop $0
 
-  ${If} $0 == error
-    Abort
-  ${EndIf}
+    ${If} $0 == error
+      Abort
+    ${EndIf}
 
-  ${NSD_CreateLabel} 0 0 100% 24u "Choose whether to create a desktop shortcut for cool-buddy."
-  Pop $0
+    ${NSD_CreateLabel} 0 0 100% 24u "Choose whether to create a desktop shortcut for cool-buddy."
+    Pop $0
 
-  ${NSD_CreateCheckbox} 0 32u 100% 12u "Create a desktop shortcut"
-  Pop $DesktopShortcutCheckbox
+    ${NSD_CreateCheckbox} 0 32u 100% 12u "Create a desktop shortcut"
+    Pop $DesktopShortcutCheckbox
 
-  ${NSD_Check} $DesktopShortcutCheckbox
-  nsDialogs::Show
-FunctionEnd
+    ${NSD_Check} $DesktopShortcutCheckbox
+    nsDialogs::Show
+  FunctionEnd
 
-Function DesktopShortcutPageLeave
-  ${NSD_GetState} $DesktopShortcutCheckbox $CreateDesktopShortcutSelection
-FunctionEnd
+  Function DesktopShortcutPageLeave
+    ${NSD_GetState} $DesktopShortcutCheckbox $CreateDesktopShortcutSelection
+  FunctionEnd
+!endif
 
 Function NormalizeInstallDir
   Exch $0
@@ -69,6 +73,19 @@ done:
   Exch $0
 FunctionEnd
 
+Function IsExistingCoolBuddyInstall
+  Exch $0
+  StrCpy $1 "0"
+
+  IfFileExists "$0\cool-buddy.exe" 0 done
+  IfFileExists "$0\resources\app.asar" 0 done
+  StrCpy $1 "1"
+
+done:
+  StrCpy $0 $1
+  Exch $0
+FunctionEnd
+
 Function .onVerifyInstDir
   Push "$INSTDIR"
   Call NormalizeInstallDir
@@ -79,8 +96,14 @@ Function .onVerifyInstDir
   Pop $0
 
   ${If} $0 != "1"
-    MessageBox MB_ICONSTOP|MB_OK "Please choose an empty install folder. The installer will use:$\r$\n$INSTDIR"
-    Abort
+    Push "$INSTDIR"
+    Call IsExistingCoolBuddyInstall
+    Pop $0
+
+    ${If} $0 != "1"
+      MessageBox MB_ICONSTOP|MB_OK "Please choose an empty install folder, or an existing cool-buddy install folder. The installer will use:$\r$\n$INSTDIR"
+      Abort
+    ${EndIf}
   ${EndIf}
 FunctionEnd
 

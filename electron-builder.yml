@@ -1,4 +1,4 @@
-appId: com.electron.app
+appId: asia.tenxll.cool
 productName: cool-buddy
 directories:
   buildResources: build
