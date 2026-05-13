@@ -1,7 +1,7 @@
 {
   "name": "cool-buddy",
   "version": "1.0.0",
-  "description": "An Electron application with Vue and TypeScript",
+  "description": "a cool tool for you",
   "main": "./out/main/index.js",
   "author": "ten.x",
   "homepage": "https://electron-vite.org",
