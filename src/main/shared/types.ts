@@ -236,6 +236,10 @@ export type RemotePathCompletionResult = {
   matches: string[];
 };
 
+export type RemoteOpenFilePayload = {
+  path: string;
+};
+
 export type RemoteReadPayload = {
   path: string;
 };

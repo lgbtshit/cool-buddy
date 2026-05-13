@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ElInputNumber } from 'element-plus';
+import 'element-plus/es/components/input-number/style/css';
 import { useAppCopy } from '../../composables/use-app-copy';
 
 defineProps<{
@@ -30,17 +32,13 @@ const { t } = useAppCopy();
       <div class="modal-grid">
         <label>
           <span>{{ t('logLineCount') }}</span>
-          <input
+          <ElInputNumber
             :max="maxLines"
             :min="minLines"
-            :value="lineLimit"
-            type="number"
-            @input="
-              emit(
-                'update:line-limit',
-                Number(($event.target as HTMLInputElement).value) || minLines
-              )
-            "
+            :model-value="lineLimit"
+            :controls="false"
+            class="full-width"
+            @update:model-value="emit('update:line-limit', Number($event) || minLines)"
           />
         </label>
       </div>

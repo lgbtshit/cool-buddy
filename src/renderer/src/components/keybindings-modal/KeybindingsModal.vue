@@ -11,46 +11,25 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const { locale, t } = useAppCopy();
+const { t } = useAppCopy();
 
-const shortcutItems = computed(() =>
-  locale.value === 'zh-CN'
-    ? [
-        {
-          keys: ['Ctrl', 'Shift', 'C'],
-          title: '复制终端选中内容',
-          detail: '先在终端里选中文本，再按组合键复制到剪贴板。'
-        },
-        {
-          keys: ['Ctrl', 'Shift', 'V'],
-          title: '粘贴单行命令',
-          detail: '把当前剪贴板内容直接粘贴进终端输入区。'
-        },
-        {
-          keys: ['Ctrl', 'Shift', 'V'],
-          title: '粘贴多行命令',
-          detail: '检测到多行内容时会先弹出确认框，再决定整段执行还是逐行发送。'
-        }
-      ]
-    : [
-        {
-          keys: ['Ctrl', 'Shift', 'C'],
-          title: 'Copy terminal selection',
-          detail: 'Select text inside the terminal, then copy it to the clipboard.'
-        },
-        {
-          keys: ['Ctrl', 'Shift', 'V'],
-          title: 'Paste a single-line command',
-          detail: 'Paste the current clipboard content directly into the terminal input.'
-        },
-        {
-          keys: ['Ctrl', 'Shift', 'V'],
-          title: 'Paste multi-line commands',
-          detail:
-            'When multiple lines are detected, a confirmation dialog lets you run all or send line by line.'
-        }
-      ]
-);
+const shortcutItems = computed(() => [
+  {
+    keys: ['Ctrl', 'Shift', 'C'],
+    title: t('keybindingCopySelectionTitle'),
+    detail: t('keybindingCopySelectionDetail')
+  },
+  {
+    keys: ['Ctrl', 'Shift', 'V'],
+    title: t('keybindingPasteSingleLineTitle'),
+    detail: t('keybindingPasteSingleLineDetail')
+  },
+  {
+    keys: ['Ctrl', 'Shift', 'V'],
+    title: t('keybindingPasteMultiLineTitle'),
+    detail: t('keybindingPasteMultiLineDetail')
+  }
+]);
 </script>
 
 <template>

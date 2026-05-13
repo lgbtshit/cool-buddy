@@ -11,6 +11,7 @@ import {
 } from 'lucide-vue-next';
 import { storeToRefs } from 'pinia';
 import VueMarkdownStream from 'vue-markdown-stream';
+import 'vue-markdown-stream/dist/index.css';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useAppCopy } from '../../composables/use-app-copy';
 import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
@@ -35,6 +36,16 @@ const confirmStep = ref(1);
 const approvalSubmitting = ref(false);
 const agentThreadRef = ref<HTMLElement | null>(null);
 
+type ParsedAgentMessage = {
+  body: string;
+  think: string | null;
+  thinkPreview: string;
+};
+
+type VisibleAgentMessage = (typeof agentMessages.value)[number] & {
+  parsedContent: ParsedAgentMessage;
+};
+
 function formatMemoryGb(valueMb: number): string {
   const valueGb = valueMb / 1024;
   return valueGb >= 10 ? valueGb.toFixed(1) : valueGb.toFixed(2);
@@ -45,33 +56,54 @@ onMounted(() => {
   void scrollAgentThreadToBottom();
 });
 
-const visibleAgentMessages = computed(() =>
-  agentMessages.value.filter(
-    (message) => message.role !== 'assistant' || message.content.trim().length > 0
-  )
-);
-
 const thinkingMessage = computed(() =>
   agentMessages.value.findLast(
     (message) => message.role === 'assistant' && message.content.trim().length === 0
   )
 );
 
+function shouldRenderAgentMessage(message: VisibleAgentMessage): boolean {
+  if (message.role === 'tool') {
+    return false;
+  }
+
+  if (message.role === 'assistant') {
+    return message.parsedContent.body.trim().length > 0;
+  }
+
+  return message.content.trim().length > 0;
+}
+
+const visibleAgentMessages = computed(() =>
+  agentMessages.value
+    .map(
+      (message) =>
+        ({
+          ...message,
+          parsedContent: parseAgentMessage(message.content)
+        }) satisfies VisibleAgentMessage
+    )
+    .filter(shouldRenderAgentMessage)
+);
+
 const hasAgentMessages = computed(() => visibleAgentMessages.value.length > 0);
 const showAgentThinking = computed(() =>
   Boolean(agentRuntime.value.running && thinkingMessage.value)
 );
+const agentThinkStyle = computed(() => ({
+  '--agent-think-label': `"${t('agentThinkingLabel')}"`
+}));
 
 const agentStatusLabel = computed(() => {
   if (agentRuntime.value.running) {
-    return 'Running';
+    return t('agentStatusRunning');
   }
 
   if (pendingAgentApproval.value) {
     return pendingAgentApproval.value.riskLevel.toUpperCase();
   }
 
-  return 'Ready';
+  return t('agentStatusReady');
 });
 
 async function scrollAgentThreadToBottom() {
@@ -85,6 +117,30 @@ async function scrollAgentThreadToBottom() {
   thread.scrollTop = thread.scrollHeight;
 }
 
+function parseAgentMessage(content: string): ParsedAgentMessage {
+  const match = content.match(/<think>([\s\S]*?)<\/think>/i);
+
+  if (!match) {
+    return {
+      body: content,
+      think: null,
+      thinkPreview: ''
+    };
+  }
+
+  const think = match[1].trim();
+  const matchIndex = match.index ?? 0;
+  const body =
+    `${content.slice(0, matchIndex)}${content.slice(matchIndex + match[0].length)}`.trim();
+  const thinkPreview = think.replace(/\s+/g, ' ').trim();
+
+  return {
+    body,
+    think,
+    thinkPreview
+  };
+}
+
 function formatAgentTime(value: string): string {
   return new Intl.DateTimeFormat(locale.value, {
     hour: '2-digit',
@@ -96,6 +152,12 @@ function getAgentMessageClass(role: string) {
   if (role === 'user') return 'agent-bubble-user';
   if (role === 'assistant') return 'agent-bubble-assistant';
   return 'agent-bubble-system';
+}
+
+function getAgentRoleLabel(role: string) {
+  if (role === 'user') return t('agentRoleUser');
+  if (role === 'assistant') return t('agentRoleAssistant');
+  return t('agentRoleSystem');
 }
 
 function getApprovalClass(riskLevel: AgentRiskLevel) {
@@ -252,7 +314,7 @@ watch(
     />
 
     <template v-if="hasAgentProviderConfigured">
-      <section class="agent-card">
+      <section class="agent-card" :style="agentThinkStyle">
         <div class="agent-header">
           <div class="agent-identity">
             <div class="agent-avatar">
@@ -260,7 +322,7 @@ watch(
             </div>
             <div class="agent-heading">
               <span class="agent-eyebrow">{{ t('aiAgent') }}</span>
-              <strong>小酷</strong>
+              <strong>{{ t('agentName') }}</strong>
             </div>
           </div>
           <div class="agent-status">
@@ -277,14 +339,23 @@ watch(
             :class="getAgentMessageClass(message.role)"
           >
             <span class="agent-bubble-label">
-              {{ message.role }} - {{ formatAgentTime(message.createdAt) }}
+              {{ getAgentRoleLabel(message.role) }} - {{ formatAgentTime(message.createdAt) }}
             </span>
-            <VueMarkdownStream class="agent-markdown" :content="message.content" />
+            <template v-if="message.parsedContent.think">
+              <VueMarkdownStream
+                v-if="message.parsedContent.body"
+                class="agent-markdown"
+                :content="message.parsedContent.body"
+              />
+            </template>
+            <VueMarkdownStream v-else class="agent-markdown" :content="message.content" />
           </article>
 
           <article v-if="showAgentThinking" class="agent-bubble agent-bubble-thinking">
-            <span class="agent-bubble-label">assistant - now</span>
-            <div class="thinking-row" aria-live="polite" aria-label="Agent is thinking">
+            <span class="agent-bubble-label">
+              {{ t('agentRoleAssistant') }} - {{ t('agentThinkingNow') }}
+            </span>
+            <div class="thinking-row" aria-live="polite" :aria-label="t('agentThinkingAria')">
               <span class="thinking-dot"></span>
               <span class="thinking-dot"></span>
               <span class="thinking-dot"></span>
@@ -296,12 +367,10 @@ watch(
           v-else
           :compact="true"
           :description="
-            agentRuntime.running
-              ? 'Agent is preparing the first tool pass.'
-              : 'Ask for a diagnosis, metrics summary, service check, log read, or remote file operation.'
+            agentRuntime.running ? t('agentPreparingDescription') : t('agentReadyDescription')
           "
           :icon="Bot"
-          title="Agent is ready"
+          :title="t('agentReadyTitle')"
         />
       </section>
 
@@ -356,7 +425,9 @@ watch(
       >
         <div class="modal-header">
           <div>
-            <h2>{{ pendingAgentApproval.riskLevel.toUpperCase() }} Confirmation</h2>
+            <h2>
+              {{ pendingAgentApproval.riskLevel.toUpperCase() }} {{ t('approvalConfirmation') }}
+            </h2>
             <p>{{ pendingAgentApproval.summary }}</p>
           </div>
           <div class="approval-badge">
@@ -372,23 +443,25 @@ watch(
             v-if="pendingAgentApproval.confirmCount === 2 && confirmStep === 1"
             class="approval-note"
           >
-            This is a P0 action. The first click arms execution, and the second click sends it.
+            {{ t('approvalP0ArmingNote') }}
           </p>
           <p
             v-if="pendingAgentApproval.confirmCount === 2 && confirmStep === 2"
             class="approval-note"
           >
-            Final confirmation. This action will run immediately after you confirm again.
+            {{ t('approvalP0FinalNote') }}
           </p>
         </div>
 
         <div class="modal-actions approval-actions">
-          <button class="ghost-btn" @click="void rejectPendingAction()">Reject</button>
+          <button class="ghost-btn" @click="void rejectPendingAction()">
+            {{ t('approvalReject') }}
+          </button>
           <button class="primary-btn" @click="void approvePendingAction()">
             {{
               pendingAgentApproval.confirmCount === 2 && confirmStep === 1
-                ? 'Arm Execution'
-                : 'Confirm Execution'
+                ? t('approvalArmExecution')
+                : t('approvalConfirmExecution')
             }}
           </button>
         </div>
@@ -400,8 +473,12 @@ watch(
 <style scoped lang="scss">
 .inspector-rail {
   display: grid;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
   gap: 10px;
+  overflow: hidden;
   padding: 10px 10px 10px 0;
   border-left: 1px solid rgba(58, 73, 74, 0.35);
   background: rgba(27, 27, 30, 0.92);
@@ -523,9 +600,11 @@ watch(
 
 .agent-card {
   display: flex;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
   gap: 14px;
+  overflow: hidden;
 }
 
 .agent-header {
@@ -602,6 +681,8 @@ watch(
 
 .agent-thread {
   display: flex;
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
   flex: 1;
   flex-direction: column;
@@ -611,28 +692,163 @@ watch(
 }
 
 .agent-bubble {
+  width: 100%;
+  box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
   padding: 12px 13px;
   border: 1px solid rgba(58, 73, 74, 0.34);
   border-radius: 8px;
   color: rgba(228, 225, 230, 0.88);
+  font-family: var(--font-ui);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .agent-markdown {
   min-width: 0;
+  max-width: 100%;
 
   :deep(*) {
     min-width: 0;
+    max-width: 100%;
+  }
+
+  :deep(.text-block) {
+    display: grid;
+    gap: 0;
+  }
+
+  &.markdown-body,
+  :deep(.markdown-body) {
+    color-scheme: dark;
+    --fgColor-default: rgba(228, 225, 230, 0.84);
+    --fgColor-muted: rgba(185, 202, 202, 0.72);
+    --fgColor-accent: #63f7ff;
+    --fgColor-success: #69f6b9;
+    --fgColor-attention: #f3c969;
+    --fgColor-danger: #ff7a90;
+    --bgColor-default: transparent;
+    --bgColor-muted: rgba(255, 255, 255, 0.04);
+    --bgColor-neutral-muted: rgba(255, 255, 255, 0.06);
+    --bgColor-attention-muted: rgba(243, 201, 105, 0.12);
+    --borderColor-default: rgba(58, 73, 74, 0.42);
+    --borderColor-muted: rgba(58, 73, 74, 0.34);
+    --borderColor-neutral-muted: rgba(58, 73, 74, 0.3);
+    --borderColor-accent-emphasis: rgba(99, 247, 255, 0.42);
+    --borderColor-success-emphasis: rgba(105, 246, 185, 0.42);
+    --borderColor-attention-emphasis: rgba(243, 201, 105, 0.42);
+    --borderColor-danger-emphasis: rgba(255, 122, 144, 0.42);
+    --color-prettylights-syntax-comment: rgba(185, 202, 202, 0.62);
+    --color-prettylights-syntax-constant: #79c0ff;
+    --color-prettylights-syntax-constant-other-reference-link: #a5d6ff;
+    --color-prettylights-syntax-entity: #d2a8ff;
+    --color-prettylights-syntax-storage-modifier-import: rgba(228, 225, 230, 0.84);
+    --color-prettylights-syntax-entity-tag: #7ee787;
+    --color-prettylights-syntax-keyword: #ff7b72;
+    --color-prettylights-syntax-string: #a5d6ff;
+    --color-prettylights-syntax-variable: #ffa657;
+    --color-prettylights-syntax-string-regexp: #7ee787;
+    --color-prettylights-syntax-markup-heading: #63f7ff;
+    --color-prettylights-syntax-markup-bold: rgba(244, 247, 248, 0.94);
+    --color-prettylights-syntax-markup-italic: rgba(228, 225, 230, 0.84);
+    --color-prettylights-syntax-markup-inserted-text: #69f6b9;
+    --color-prettylights-syntax-markup-inserted-bg: rgba(105, 246, 185, 0.12);
+    --color-prettylights-syntax-markup-deleted-text: #ff9fb0;
+    --color-prettylights-syntax-markup-deleted-bg: rgba(255, 122, 144, 0.12);
+    --color-prettylights-syntax-markup-changed-text: #f3c969;
+    --color-prettylights-syntax-markup-changed-bg: rgba(243, 201, 105, 0.12);
+    width: 100%;
+    max-width: 100%;
+    color: rgba(228, 225, 230, 0.84);
+    background: transparent;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    line-height: 1.72;
+  }
+
+  &.markdown-body table,
+  :deep(.markdown-body table) {
+    width: 100%;
+    max-width: 100%;
+    border-collapse: collapse;
+    border-spacing: 0;
+    background: rgba(12, 18, 22, 0.78);
+  }
+
+  &.markdown-body thead,
+  &.markdown-body tbody,
+  &.markdown-body tr,
+  &.markdown-body th,
+  &.markdown-body td,
+  :deep(.markdown-body thead),
+  :deep(.markdown-body tbody),
+  :deep(.markdown-body tr),
+  :deep(.markdown-body th),
+  :deep(.markdown-body td) {
+    background: transparent;
+  }
+
+  &.markdown-body thead tr,
+  :deep(.markdown-body thead tr) {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  &.markdown-body tbody tr,
+  :deep(.markdown-body tbody tr) {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  &.markdown-body tbody tr:nth-child(2n),
+  :deep(.markdown-body tbody tr:nth-child(2n)) {
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  &.markdown-body th,
+  &.markdown-body td,
+  :deep(.markdown-body th),
+  :deep(.markdown-body td) {
+    padding: 8px 10px;
+    border-color: rgba(58, 73, 74, 0.42);
+    background: transparent;
+    color: rgba(228, 225, 230, 0.88);
+  }
+
+  &.markdown-body th,
+  :deep(.markdown-body th) {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(244, 247, 248, 0.94);
+  }
+
+  &.markdown-body blockquote,
+  :deep(.markdown-body blockquote) {
+    color: rgba(185, 202, 202, 0.78);
+    border-left-color: rgba(99, 247, 255, 0.22);
+  }
+
+  &.markdown-body h1,
+  &.markdown-body h2,
+  &.markdown-body h3,
+  &.markdown-body h4,
+  &.markdown-body h5,
+  &.markdown-body h6,
+  :deep(.markdown-body h1),
+  :deep(.markdown-body h2),
+  :deep(.markdown-body h3),
+  :deep(.markdown-body h4),
+  :deep(.markdown-body h5),
+  :deep(.markdown-body h6) {
+    color: rgba(244, 247, 248, 0.94);
+    border-bottom-color: rgba(58, 73, 74, 0.34);
   }
 
   :deep(p),
   :deep(li),
   :deep(blockquote) {
     color: rgba(228, 225, 230, 0.84);
-    font-size: 12px;
-    line-height: 1.6;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.72;
     overflow-wrap: anywhere;
     word-break: break-word;
   }
@@ -650,8 +866,109 @@ watch(
   :deep(p + ol),
   :deep(ul + p),
   :deep(ol + p),
+  :deep(think + p),
   :deep(pre + p),
   :deep(p + pre) {
+    margin-top: 8px;
+  }
+
+  :deep(.agent-think) {
+    display: block;
+    margin: 0 0 10px;
+    border: 1px solid rgba(221, 183, 255, 0.12);
+    border-radius: 7px;
+    background: rgba(221, 183, 255, 0.04);
+    overflow: hidden;
+  }
+
+  :deep(.agent-think-summary) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    min-height: 34px;
+    padding: 8px 10px;
+    list-style: none;
+    cursor: pointer;
+    overflow: hidden;
+  }
+
+  :deep(.agent-think-summary::-webkit-details-marker) {
+    display: none;
+  }
+
+  :deep(.agent-think:not([open]) .agent-think-body) {
+    display: none;
+  }
+
+  :deep(.agent-think-summary::before) {
+    content: var(--agent-think-label, 'Think');
+    color: rgba(221, 183, 255, 0.82);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  :deep(.agent-think-summary::after) {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid rgba(221, 183, 255, 0.72);
+    border-bottom: 1.5px solid rgba(221, 183, 255, 0.72);
+    transform: rotate(45deg);
+    transition: transform 140ms ease;
+  }
+
+  :deep(.agent-think[open] .agent-think-summary::after) {
+    transform: rotate(225deg);
+  }
+
+  :deep(.agent-think-preview) {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    color: rgba(205, 195, 214, 0.82);
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  :deep(.agent-think-body) {
+    padding: 0 10px 10px;
+    border-top: 1px solid rgba(221, 183, 255, 0.08);
+    color: rgba(205, 195, 214, 0.86);
+    font-size: 12px;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  :deep(.agent-think-body .markdown-body) {
+    padding-top: 8px;
+    color: rgba(205, 195, 214, 0.86);
+    background: transparent;
+    font-size: 12px;
+    line-height: 1.65;
+  }
+
+  :deep(.agent-think-body p),
+  :deep(.agent-think-body ul),
+  :deep(.agent-think-body ol),
+  :deep(.agent-think-body pre),
+  :deep(.agent-think-body blockquote) {
+    margin: 0;
+  }
+
+  :deep(.agent-think-body p + p),
+  :deep(.agent-think-body p + ul),
+  :deep(.agent-think-body p + ol),
+  :deep(.agent-think-body ul + p),
+  :deep(.agent-think-body ol + p),
+  :deep(.agent-think-body pre + p),
+  :deep(.agent-think-body p + pre) {
     margin-top: 8px;
   }
 
@@ -673,12 +990,14 @@ watch(
     background: rgba(255, 255, 255, 0.05);
     color: #4ff7c0;
     font-size: 11px;
+    font-family: var(--font-mono);
     line-height: 1.55;
     overflow-wrap: anywhere;
     word-break: break-word;
   }
 
   :deep(pre) {
+    max-width: 100%;
     margin-bottom: 8px;
     padding: 10px 11px;
     border: 1px solid rgba(58, 73, 74, 0.28);
@@ -694,6 +1013,7 @@ watch(
     background: transparent;
     color: #4ff7c0;
     font-size: 11px;
+    font-family: var(--font-mono);
     line-height: 1.55;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -830,15 +1150,23 @@ watch(
   gap: 8px;
 
   button {
-    min-height: 28px;
-    padding: 0 10px;
+    display: inline-flex;
+    min-height: 32px;
+    max-width: 100%;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 10px;
     border: 1px solid rgba(58, 73, 74, 0.4);
     border-radius: 4px;
     background: rgba(53, 52, 56, 0.66);
     color: rgba(228, 225, 230, 0.82);
     font-size: 11px;
     font-weight: 500;
-    line-height: 1;
+    line-height: 1.35;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     cursor: pointer;
 
     &:hover {

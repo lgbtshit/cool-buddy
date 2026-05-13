@@ -1,11 +1,7 @@
-export type Locale = 'zh-CN' | 'en-US';
+import type { Locale } from '../../shared/locale';
+import { localizedMessageOverrides } from './i18n-locales';
 
-export const localeLabels: Record<Locale, string> = {
-  'zh-CN': '\u4e2d\u6587',
-  'en-US': 'EN'
-};
-
-export const messages = {
+const baseMessages = {
   'zh-CN': {
     pasteConfirmTitle: '检测到多行粘贴',
     pasteExecuteAll: '整段执行',
@@ -303,4 +299,143 @@ export const messages = {
   }
 } as const;
 
-export type MessageKey = keyof (typeof messages)['zh-CN'];
+const enUSMessages = {
+  ...baseMessages['en-US'],
+  ...localizedMessageOverrides['en-US'],
+  agentName: 'Buddy',
+  agentRoleUser: 'user',
+  agentRoleAssistant: 'assistant',
+  agentRoleSystem: 'system',
+  agentStatusRunning: 'Running',
+  agentStatusReady: 'Ready',
+  agentThinkingNow: 'now',
+  agentThinkingAria: 'Agent is thinking',
+  agentThinkingLabel: 'Think',
+  agentReadyTitle: 'Agent is ready',
+  agentPreparingDescription: 'Agent is preparing the first tool pass.',
+  agentReadyDescription:
+    'Ask for a diagnosis, metrics summary, service check, log read, or remote file operation.',
+  approvalConfirmation: 'Confirmation',
+  approvalP0ArmingNote:
+    'This is a P0 action. The first click arms execution, and the second click sends it.',
+  approvalP0FinalNote:
+    'Final confirmation. This action will run immediately after you confirm again.',
+  approvalReject: 'Reject',
+  approvalArmExecution: 'Arm Execution',
+  approvalConfirmExecution: 'Confirm Execution'
+} as const;
+
+type MessageCatalog = Record<keyof typeof enUSMessages, string>;
+
+const zhCNMessages: MessageCatalog = {
+  ...baseMessages['zh-CN'],
+  ...localizedMessageOverrides['zh-CN'],
+  agentName: '小酷',
+  agentRoleUser: '用户',
+  agentRoleAssistant: '助手',
+  agentRoleSystem: '系统',
+  agentStatusRunning: '运行中',
+  agentStatusReady: '就绪',
+  agentThinkingNow: '刚刚',
+  agentThinkingAria: 'Agent 正在思考',
+  agentThinkingLabel: '思考',
+  agentReadyTitle: 'Agent 已就绪',
+  agentPreparingDescription: 'Agent 正在准备第一轮工具调用。',
+  agentReadyDescription: '可以让它做诊断、指标总结、服务检查、日志读取或远程文件操作。',
+  approvalConfirmation: '确认',
+  approvalP0ArmingNote: '这是一个 P0 操作。第一次点击会进入待执行状态，第二次点击才会真正发送。',
+  approvalP0FinalNote: '最终确认。再次点击后，该操作会立即执行。',
+  approvalReject: '拒绝',
+  approvalArmExecution: '进入执行确认',
+  approvalConfirmExecution: '确认执行'
+};
+
+const zhTWMessages: MessageCatalog = {
+  ...enUSMessages,
+  ...localizedMessageOverrides['zh-TW'],
+  agentQuickHostHealth: '主機健康',
+  agentQuickRunningApps: '執行中的應用',
+  agentQuickCheckLogs: '檢查日誌',
+  agentQuickHostHealthPrompt: '檢查目前系統指標，並總結這台主機的健康狀況。',
+  agentQuickRunningAppsPrompt: '檢查正在執行的服務與容器，並總結是否存在明顯問題。',
+  agentQuickCheckLogsPrompt: '讀取一個有價值的應用日誌最新 80 行，並總結異常點。'
+};
+
+const jaJPMessages: MessageCatalog = {
+  ...enUSMessages,
+  ...localizedMessageOverrides['ja-JP'],
+  agentQuickHostHealth: 'ホストの健全性',
+  agentQuickRunningApps: '実行中のアプリ',
+  agentQuickCheckLogs: 'ログを確認',
+  agentQuickHostHealthPrompt:
+    '現在のシステムメトリクスを確認し、このホストの健全性を要約してください。',
+  agentQuickRunningAppsPrompt:
+    '実行中のサービスとコンテナを確認し、明らかな問題があるか要約してください。',
+  agentQuickCheckLogsPrompt:
+    '価値のあるアプリケーションログの最新 80 行を読み取り、異常点を要約してください。'
+};
+
+const koKRMessages: MessageCatalog = {
+  ...enUSMessages,
+  ...localizedMessageOverrides['ko-KR'],
+  agentQuickHostHealth: '호스트 상태',
+  agentQuickRunningApps: '실행 중인 앱',
+  agentQuickCheckLogs: '로그 확인',
+  agentQuickHostHealthPrompt: '현재 시스템 지표를 확인하고 이 호스트의 상태를 요약하세요.',
+  agentQuickRunningAppsPrompt:
+    '실행 중인 서비스와 컨테이너를 점검하고, 눈에 띄는 문제가 있는지 요약하세요.',
+  agentQuickCheckLogsPrompt: '의미 있는 애플리케이션 로그 최신 80줄을 읽고, 이상 징후를 요약하세요.'
+};
+
+const deDEMessages: MessageCatalog = {
+  ...enUSMessages,
+  ...localizedMessageOverrides['de-DE'],
+  agentQuickHostHealth: 'Host-Zustand',
+  agentQuickRunningApps: 'Laufende Apps',
+  agentQuickCheckLogs: 'Logs prüfen',
+  agentQuickHostHealthPrompt:
+    'Prüfen Sie die aktuellen Systemmetriken und fassen Sie den Zustand dieses Hosts zusammen.',
+  agentQuickRunningAppsPrompt:
+    'Untersuchen Sie laufende Dienste und Container und fassen Sie auffällige Probleme zusammen.',
+  agentQuickCheckLogsPrompt:
+    'Lesen Sie die letzten 80 Zeilen eines aussagekräftigen Anwendungslogs und fassen Sie Auffälligkeiten zusammen.'
+};
+
+const ruRUMessages: MessageCatalog = {
+  ...enUSMessages,
+  ...localizedMessageOverrides['ru-RU'],
+  agentQuickHostHealth: 'Состояние хоста',
+  agentQuickRunningApps: 'Запущенные приложения',
+  agentQuickCheckLogs: 'Проверить логи',
+  agentQuickHostHealthPrompt:
+    'Проверьте текущие системные метрики и кратко опишите состояние этого хоста.',
+  agentQuickRunningAppsPrompt:
+    'Проверьте запущенные сервисы и контейнеры и кратко опишите заметные проблемы.',
+  agentQuickCheckLogsPrompt:
+    'Прочитайте последние 80 строк полезного лога приложения и кратко опишите аномалии.'
+};
+
+const arSAMessages: MessageCatalog = {
+  ...enUSMessages,
+  ...localizedMessageOverrides['ar-SA'],
+  agentQuickHostHealth: 'صحة المضيف',
+  agentQuickRunningApps: 'التطبيقات قيد التشغيل',
+  agentQuickCheckLogs: 'فحص السجلات',
+  agentQuickHostHealthPrompt: 'تحقق من مؤشرات النظام الحالية ثم لخّص حالة هذا المضيف.',
+  agentQuickRunningAppsPrompt:
+    'افحص الخدمات والحاويات العاملة ثم لخّص ما إذا كانت هناك مشكلات واضحة.',
+  agentQuickCheckLogsPrompt: 'اقرأ آخر 80 سطرًا من سجل تطبيق مفيد ثم لخّص النقاط غير الطبيعية.'
+};
+
+export const messages: Record<Locale, MessageCatalog> = {
+  'zh-CN': zhCNMessages,
+  'en-US': enUSMessages,
+  'zh-TW': zhTWMessages,
+  'ja-JP': jaJPMessages,
+  'ko-KR': koKRMessages,
+  'de-DE': deDEMessages,
+  'ru-RU': ruRUMessages,
+  'ar-SA': arSAMessages
+};
+
+export type MessageKey = keyof typeof enUSMessages;

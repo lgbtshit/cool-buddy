@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {
+  Check,
+  ChevronDown,
   Circle,
   Languages,
   MoreHorizontal,
@@ -13,10 +15,11 @@ import { storeToRefs } from 'pinia';
 import { useAppCopy } from '../../composables/use-app-copy';
 import { useSshConsoleStore } from '../../stores/ssh-console';
 import type { SessionItem } from '../../types/ssh-console';
+import type { Locale } from '../../../../shared/locale';
 
 const store = useSshConsoleStore();
 const { activeSessionId, latencyLabel, openTabs, tabMenu } = storeToRefs(store);
-const { localeLabel, t } = useAppCopy();
+const { locale, localeLabel, localeOptions, t } = useAppCopy();
 
 const iconMap = {
   server: Server,
@@ -25,12 +28,37 @@ const iconMap = {
 };
 const tabStripRef = ref<HTMLElement | null>(null);
 const tabMenuRef = ref<HTMLElement | null>(null);
+const localeMenuRef = ref<HTMLElement | null>(null);
+const localeTriggerRef = ref<HTMLElement | null>(null);
+const localeMenuOpen = ref(false);
 const tabMenuStyle = ref({ left: '0px', top: '0px' });
 const MENU_GAP_PX = 6;
 const VIEWPORT_PADDING_PX = 8;
 
 const handleConnect = async (session: SessionItem) => {
   await store.connectToSession(session);
+};
+
+const setLocale = (nextLocale: Locale) => {
+  store.setLocale(nextLocale);
+  localeMenuOpen.value = false;
+};
+
+const toggleLocaleMenu = () => {
+  localeMenuOpen.value = !localeMenuOpen.value;
+};
+
+const handleWindowPointerDown = (event: MouseEvent) => {
+  const target = event.target as Node | null;
+
+  if (
+    localeMenuOpen.value &&
+    target &&
+    !localeMenuRef.value?.contains(target) &&
+    !localeTriggerRef.value?.contains(target)
+  ) {
+    localeMenuOpen.value = false;
+  }
 };
 
 const updateTabMenuPosition = () => {
@@ -80,10 +108,12 @@ watch(tabMenu, (value) => {
 
 onMounted(() => {
   window.addEventListener('resize', updateTabMenuPosition);
+  window.addEventListener('mousedown', handleWindowPointerDown);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateTabMenuPosition);
+  window.removeEventListener('mousedown', handleWindowPointerDown);
 });
 </script>
 
@@ -123,10 +153,30 @@ onBeforeUnmount(() => {
         <Circle :size="10" class="pulse-dot" />
         <span>{{ latencyLabel }}</span>
       </div>
-      <button class="locale-btn" @click="store.toggleLocale()">
+      <button
+        ref="localeTriggerRef"
+        class="locale-btn"
+        type="button"
+        :aria-expanded="localeMenuOpen"
+        @click="toggleLocaleMenu"
+      >
         <Languages :size="15" />
-        <span>{{ localeLabel }}</span>
+        <span class="locale-current">{{ localeLabel }}</span>
+        <ChevronDown :size="14" class="locale-chevron" :class="{ open: localeMenuOpen }" />
       </button>
+      <div v-if="localeMenuOpen" ref="localeMenuRef" class="locale-menu">
+        <button
+          v-for="option in localeOptions"
+          :key="option.value"
+          class="locale-menu-item"
+          :class="{ active: option.value === locale }"
+          type="button"
+          @click="setLocale(option.value)"
+        >
+          <span>{{ option.label }}</span>
+          <Check v-if="option.value === locale" :size="14" />
+        </button>
+      </div>
     </div>
   </header>
 </template>
@@ -146,6 +196,7 @@ onBeforeUnmount(() => {
 
 .tab-strip,
 .topbar-actions {
+  position: relative;
   display: flex;
   min-width: 0;
   align-items: center;
@@ -222,6 +273,81 @@ onBeforeUnmount(() => {
   background: rgba(14, 14, 17, 0.72);
   color: rgba(228, 225, 230, 0.88);
   font-size: 12px;
+}
+
+.locale-btn {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid rgba(58, 73, 74, 0.4);
+  border-radius: 999px;
+  background: rgba(14, 14, 17, 0.72);
+  color: rgba(228, 225, 230, 0.88);
+  cursor: pointer;
+}
+
+.locale-current {
+  min-width: 72px;
+  color: rgba(228, 225, 230, 0.76);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  text-align: left;
+}
+
+.locale-chevron {
+  transition: transform 0.18s ease;
+
+  &.open {
+    transform: rotate(180deg);
+  }
+}
+
+.locale-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  display: grid;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid rgba(58, 73, 74, 0.6);
+  border-radius: 8px;
+  background: rgba(19, 19, 22, 0.98);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+}
+
+.locale-menu-item {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(228, 225, 230, 0.92);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &.active {
+    background: rgba(53, 52, 56, 0.8);
+    color: var(--cyan-soft);
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .pulse-dot {

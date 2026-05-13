@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { ElInput } from 'element-plus';
+import type { InputInstance } from 'element-plus';
+import 'element-plus/es/components/input/style/css';
 import {
   ArrowUp,
   Eye,
@@ -37,7 +40,7 @@ const selectedEntryPath = ref('');
 const editingEntryPath = ref('');
 const editingName = ref('');
 const renamingEntryPath = ref('');
-const renameInput = ref<HTMLInputElement | null>(null);
+const renameInput = ref<InputInstance | null>(null);
 const pathCompletionMatches = ref<string[]>([]);
 const pathCompletionIndex = ref(-1);
 const pathCompletionQuery = ref('');
@@ -89,6 +92,12 @@ async function openEntry(entry: RemoteEntry) {
   await store.openRemoteEntry(entry);
 }
 
+async function previewEntry(entry: RemoteEntry) {
+  selectedEntryPath.value = entry.path;
+  editingEntryPath.value = '';
+  await store.previewRemoteEntry(entry);
+}
+
 function triggerUploadPicker() {
   fileInput.value?.click();
 }
@@ -129,7 +138,7 @@ async function handleRename(entry: RemoteEntry) {
   const extensionIndex =
     entry.kind === 'file' && entry.name.includes('.') ? entry.name.lastIndexOf('.') : -1;
   const selectionEnd = extensionIndex > 0 ? extensionIndex : entry.name.length;
-  input.setSelectionRange(0, selectionEnd);
+  input.input?.setSelectionRange(0, selectionEnd);
 }
 
 async function handleDelete(entry: RemoteEntry) {
@@ -310,16 +319,17 @@ async function submitRename(entry: RemoteEntry) {
     <div v-else class="remote-explorer-content">
       <div class="remote-path-bar">
         <form class="remote-path-form" @submit.prevent="void submitPath()">
-          <input
+          <ElInput
             v-model="pathInput"
             class="remote-path-input"
             :disabled="explorerLoading || explorerBusy"
             :placeholder="t('remotePathPlaceholder')"
-            type="text"
             @input="resetPathCompletionState()"
+            @keydown.enter.prevent="void submitPath()"
             @keydown.tab.prevent="void handlePathTabComplete()"
           />
           <button
+            type="button"
             class="mini-icon-btn remote-path-up-btn"
             :disabled="!canGoToParentDirectory || explorerLoading || explorerBusy"
             @click="void goToParentDirectory()"
@@ -345,12 +355,11 @@ async function submitRename(entry: RemoteEntry) {
           >
             <div class="remote-entry-main">
               <component :is="entry.kind === 'directory' ? FolderOpen : FileText" :size="15" />
-              <input
+              <ElInput
                 v-if="editingEntryPath === entry.path"
                 ref="renameInput"
                 v-model="editingName"
                 class="remote-entry-rename-input"
-                type="text"
                 @blur="void submitRename(entry)"
                 @click.stop
                 @dblclick.stop
@@ -372,8 +381,7 @@ async function submitRename(entry: RemoteEntry) {
                 v-if="entry.kind !== 'directory'"
                 class="mini-icon-btn"
                 :disabled="explorerBusy"
-                @click.stop="selectedEntryPath = entry.path"
-                @dblclick.stop="void openEntry(entry)"
+                @click.stop="void previewEntry(entry)"
               >
                 <Eye :size="13" />
               </button>
@@ -469,32 +477,25 @@ async function submitRename(entry: RemoteEntry) {
 
 .remote-path-form {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
 .remote-path-input {
-  height: 36px;
   flex: 1;
-  padding: 0 12px;
-  border: 1px solid var(--field-border);
-  border-radius: 4px;
-  background: rgba(14, 14, 17, 0.72);
-  color: rgba(228, 225, 230, 0.88);
-  font-size: 12px;
 
-  &:focus-visible {
-    border-color: var(--field-border-strong);
-    background: var(--field-bg-elevated);
-    box-shadow: var(--field-shadow-focus);
-  }
-
-  &:hover {
-    border-color: rgba(99, 247, 255, 0.24);
+  :deep(.el-input__wrapper) {
+    min-height: 36px;
+    border-radius: 4px;
+    background: rgba(14, 14, 17, 0.72);
   }
 }
 
 .remote-path-up-btn {
   flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  align-self: center;
 }
 
 .remote-entry-list {
@@ -558,17 +559,17 @@ async function submitRename(entry: RemoteEntry) {
 .remote-entry-rename-input {
   width: 100%;
   min-width: 0;
-  height: 26px;
-  padding: 0 8px;
-  border: 1px solid rgba(99, 247, 255, 0.32);
-  border-radius: 4px;
-  background: rgba(14, 14, 17, 0.82);
-  color: rgba(228, 225, 230, 0.92);
-  font-size: 12px;
 
-  &:focus-visible {
-    border-color: var(--field-border-strong);
-    box-shadow: var(--field-shadow-focus);
+  :deep(.el-input__wrapper) {
+    min-height: 26px;
+    padding: 0 8px;
+    border-radius: 4px;
+    background: rgba(14, 14, 17, 0.82);
+    box-shadow: inset 0 0 0 1px rgba(99, 247, 255, 0.32);
+  }
+
+  :deep(.el-input__inner) {
+    font-size: 12px;
   }
 }
 

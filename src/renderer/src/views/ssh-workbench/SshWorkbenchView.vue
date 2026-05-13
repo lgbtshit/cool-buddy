@@ -383,13 +383,17 @@ onBeforeUnmount(() => {
 
 .workspace {
   display: grid;
+  min-width: 0;
   min-height: 0;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  overflow: hidden;
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
   background: var(--bg-low);
 }
 
 .terminal-stack {
   display: grid;
+  min-width: 0;
   min-height: 0;
   gap: 10px;
   padding: 10px;

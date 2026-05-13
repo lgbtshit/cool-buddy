@@ -1,4 +1,5 @@
 import { ElectronAPI } from '@electron-toolkit/preload';
+import type { Locale } from '../shared/locale';
 
 type SshConnectPayload = {
   host: string;
@@ -201,6 +202,9 @@ type RemoteApp = {
 };
 
 type AppApi = {
+  app: {
+    setLocale: (locale: Locale) => Promise<{ ok: true }>;
+  };
   sessions: {
     list: () => Promise<SessionItem[]>;
     create: (payload: CreateSessionPayload) => Promise<SessionItem>;
@@ -245,6 +249,7 @@ type AppApi = {
       payload: RemotePathCompletionPayload
     ) => Promise<RemotePathCompletionResult>;
     readRemoteFile: (payload: { path: string }) => Promise<{ path: string; content: string }>;
+    openRemoteFile: (payload: { path: string }) => Promise<{ path: string; localPath: string }>;
     uploadRemoteFile: (payload: {
       directory: string;
       name: string;

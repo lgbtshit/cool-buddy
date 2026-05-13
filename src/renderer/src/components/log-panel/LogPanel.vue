@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ElInput } from 'element-plus';
+import 'element-plus/es/components/input/style/css';
 import { nextTick, ref, watch } from 'vue';
 import { MonitorCog, Play, Square, FileText, Settings2 } from 'lucide-vue-next';
 import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
@@ -48,9 +50,9 @@ function isSameMatchList(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function handlePathInput(event: Event) {
+function handlePathInput(value: string) {
   resetCompletionState();
-  emit('pathInput', (event.target as HTMLInputElement).value);
+  emit('pathInput', value);
 }
 
 async function handlePathTabComplete() {
@@ -144,13 +146,12 @@ watch(
     </div>
 
     <div class="log-toolbar">
-      <input
-        :value="logPath"
+      <ElInput
+        :model-value="logPath"
         class="log-path-input"
         :disabled="isRunning"
         :placeholder="pathPlaceholder"
-        type="text"
-        @input="handlePathInput"
+        @update:model-value="handlePathInput"
         @keydown.tab.prevent="void handlePathTabComplete()"
       />
       <span class="log-line-limit">{{ logLineLimit }}</span>
@@ -222,23 +223,16 @@ watch(
 }
 
 .log-path-input {
-  width: 100%;
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--field-border);
-  border-radius: 4px;
-  background: rgba(14, 14, 17, 0.72);
-  color: rgba(228, 225, 230, 0.88);
-  font-size: 12px;
+  flex: 1;
 
-  &:focus-visible {
-    border-color: var(--field-border-strong);
-    background: var(--field-bg-elevated);
-    box-shadow: var(--field-shadow-focus);
+  :deep(.el-input__wrapper) {
+    min-height: 34px;
+    border-radius: 4px;
+    background: rgba(14, 14, 17, 0.72);
   }
 
-  &:hover {
-    border-color: rgba(99, 247, 255, 0.24);
+  :deep(.el-input__inner) {
+    font-size: 12px;
   }
 }
 

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
+import type { Locale } from '../shared/locale';
 
 type SshConnectPayload = {
   host: string;
@@ -202,6 +203,10 @@ type RemoteApp = {
 };
 
 const api = {
+  app: {
+    setLocale: (locale: Locale): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('app:set-locale', locale)
+  },
   sessions: {
     list: (): Promise<SessionItem[]> => ipcRenderer.invoke('sessions:list'),
     create: (payload: CreateSessionPayload): Promise<SessionItem> =>
@@ -266,6 +271,8 @@ const api = {
       ipcRenderer.invoke('ssh:complete-remote-path', payload),
     readRemoteFile: (payload: { path: string }): Promise<{ path: string; content: string }> =>
       ipcRenderer.invoke('ssh:read-remote-file', payload),
+    openRemoteFile: (payload: { path: string }): Promise<{ path: string; localPath: string }> =>
+      ipcRenderer.invoke('ssh:open-remote-file', payload),
     uploadRemoteFile: (payload: {
       directory: string;
       name: string;

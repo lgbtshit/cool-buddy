@@ -1,6 +1,11 @@
 @use './base.scss';
 
 :root {
+  --font-ui:
+    'Inter', 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI',
+    'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-mono:
+    'JetBrains Mono', 'SFMono-Regular', 'Cascadia Mono', 'Cascadia Code', 'Consolas', monospace;
   --bg: #131316;
   --bg-low: #0e0e11;
   --bg-panel-4: #353438;
@@ -18,6 +23,24 @@
   --green: #69f6b9;
   --violet: #ddb7ff;
   --yellow: #f3c969;
+  --el-color-primary: #26edf6;
+  --el-text-color-primary: #e4e1e6;
+  --el-text-color-regular: rgba(228, 225, 230, 0.86);
+  --el-text-color-secondary: rgba(185, 202, 202, 0.72);
+  --el-border-color: rgba(58, 73, 74, 0.4);
+  --el-border-color-hover: rgba(99, 247, 255, 0.24);
+  --el-border-color-light: rgba(58, 73, 74, 0.3);
+  --el-fill-color-blank: rgba(14, 14, 17, 0.82);
+  --el-fill-color-light: rgba(53, 52, 56, 0.66);
+  --el-fill-color: rgba(53, 52, 56, 0.66);
+  --el-fill-color-darker: rgba(14, 14, 17, 0.88);
+  --el-bg-color: rgba(27, 27, 30, 0.96);
+  --el-bg-color-overlay: rgba(18, 20, 24, 0.98);
+  --el-mask-color: rgba(0, 0, 0, 0.5);
+  --el-disabled-bg-color: rgba(53, 52, 56, 0.36);
+  --el-disabled-text-color: rgba(228, 225, 230, 0.44);
+  --el-box-shadow-light: 0 10px 24px rgba(0, 0, 0, 0.18);
+  --el-box-shadow: 0 18px 40px rgba(0, 0, 0, 0.48);
 }
 
 body {
@@ -27,7 +50,10 @@ body {
     radial-gradient(circle at top left, rgba(0, 220, 229, 0.06), transparent 20%),
     radial-gradient(circle at top right, rgba(221, 183, 255, 0.05), transparent 18%), var(--bg);
   color: var(--text);
-  font-family: 'Noto Sans SC', sans-serif;
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 * {
@@ -91,6 +117,147 @@ textarea::placeholder {
 #app {
   width: 100vw;
   height: 100vh;
+}
+
+.full-width,
+.full-width .el-input-number,
+.el-input-number.full-width {
+  width: 100%;
+}
+
+.el-input,
+.el-select {
+  width: 100%;
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  border-radius: 8px;
+  background: var(--field-bg);
+  box-shadow: inset 0 0 0 1px var(--field-border);
+  transition:
+    box-shadow 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.el-input__wrapper,
+.el-select__wrapper {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.el-input__wrapper:hover,
+.el-select__wrapper:hover,
+.el-textarea__inner:hover {
+  box-shadow: inset 0 0 0 1px rgba(99, 247, 255, 0.24);
+}
+
+.el-input.is-focus .el-input__wrapper,
+.el-select.is-focused .el-select__wrapper,
+.el-textarea__inner:focus {
+  background: var(--field-bg-elevated);
+  box-shadow: var(--field-shadow-focus);
+}
+
+.el-input__inner,
+.el-select__selected-item,
+.el-textarea__inner,
+.el-input-number .el-input__inner {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.el-input__prefix,
+.el-input__suffix,
+.el-select__prefix,
+.el-select__suffix {
+  color: rgba(185, 202, 202, 0.72);
+}
+
+.el-input__inner::placeholder,
+.el-textarea__inner::placeholder {
+  color: rgba(185, 202, 202, 0.42);
+}
+
+.el-select__placeholder {
+  color: rgba(185, 202, 202, 0.56);
+}
+
+.el-input-number .el-input__wrapper {
+  padding: 0 12px;
+}
+
+.el-input-number.is-disabled .el-input__wrapper,
+.el-input.is-disabled .el-input__wrapper,
+.el-select.is-disabled .el-select__wrapper {
+  box-shadow: inset 0 0 0 1px rgba(58, 73, 74, 0.2);
+}
+
+.cool-buddy-select-popper.el-popper,
+.el-select__popper.el-popper {
+  --el-bg-color-overlay: rgba(18, 20, 24, 0.98);
+  --el-fill-color-blank: rgba(18, 20, 24, 0.98);
+  --el-fill-color-light: rgba(18, 20, 24, 0.98);
+  --el-border-color-light: rgba(73, 86, 91, 0.52);
+  border: 1px solid rgba(73, 86, 91, 0.52);
+  border-radius: 10px;
+  background: rgba(18, 20, 24, 0.98);
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(14px);
+}
+
+.cool-buddy-select-popper .el-select-dropdown,
+.cool-buddy-select-popper .el-select-dropdown__popper,
+.cool-buddy-select-popper .el-scrollbar,
+.cool-buddy-select-popper .el-scrollbar__wrap,
+.cool-buddy-select-popper .el-scrollbar__view,
+.cool-buddy-select-popper .el-select-dropdown__list {
+  background: rgba(18, 20, 24, 0.98);
+}
+
+.cool-buddy-select-popper .el-select-dropdown {
+  padding: 0;
+  border-radius: 10px;
+}
+
+.cool-buddy-select-popper .el-select-dropdown__wrap,
+.cool-buddy-select-popper .el-scrollbar__view {
+  padding: 6px;
+}
+
+.cool-buddy-select-popper .el-select-dropdown__list {
+  padding: 0;
+}
+
+.cool-buddy-select-popper .el-select-dropdown__item {
+  min-height: 42px;
+  padding: 9px 10px;
+  color: rgba(228, 225, 230, 0.9);
+  border-radius: 7px;
+}
+
+.cool-buddy-select-popper .el-select-dropdown__item.hover,
+.cool-buddy-select-popper .el-select-dropdown__item:hover {
+  background: rgba(99, 247, 255, 0.06);
+}
+
+.cool-buddy-select-popper .el-select-dropdown__item.is-selected {
+  background: rgba(35, 49, 54, 0.78);
+  color: #f4f7f8;
+}
+
+.cool-buddy-select-popper .el-select-dropdown__empty {
+  padding: 12px;
+  color: rgba(185, 202, 202, 0.68);
+}
+
+.cool-buddy-select-popper .el-popper__arrow::before {
+  border-color: rgba(73, 86, 91, 0.52);
+  background: rgba(18, 20, 24, 0.98);
 }
 
 .empty-state {
@@ -303,6 +470,18 @@ textarea::placeholder {
     background: var(--field-bg);
     color: var(--text);
     font-size: 13px;
+  }
+
+  .el-input,
+  .el-select,
+  .el-input-number {
+    width: 100%;
+  }
+
+  .el-input__wrapper,
+  .el-select__wrapper {
+    min-height: 34px;
+    border-radius: 4px;
   }
 }
 

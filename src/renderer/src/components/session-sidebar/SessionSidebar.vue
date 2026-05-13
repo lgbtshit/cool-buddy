@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ElInput } from 'element-plus';
+import 'element-plus/es/components/input/style/css';
 import {
   Activity,
   Database,
@@ -127,13 +129,15 @@ onBeforeUnmount(() => {
 
     <div class="session-pane">
       <div class="search-box">
-        <Search :size="16" class="search-icon" />
-        <input
-          :value="searchQuery"
+        <ElInput
+          :model-value="searchQuery"
           :placeholder="t('searchSessions')"
-          type="text"
-          @input="store.setSearchQuery(($event.target as HTMLInputElement).value)"
-        />
+          @update:model-value="store.setSearchQuery"
+        >
+          <template #prefix>
+            <Search :size="16" class="search-icon" />
+          </template>
+        </ElInput>
       </div>
 
       <div v-if="!sessionsLoaded" class="empty-state compact">{{ t('loadingSessions') }}</div>
@@ -254,37 +258,39 @@ onBeforeUnmount(() => {
 }
 
 .search-box {
-  position: relative;
   margin-bottom: 20px;
 
-  input {
-    width: 100%;
-    height: 36px;
-    padding: 0 12px 0 34px;
-    border: 1px solid var(--field-border);
-    border-radius: 4px;
-    background: var(--field-bg);
-    color: var(--text);
+  :deep(.el-input__wrapper) {
+    min-height: 38px;
+    padding-left: 10px;
+    border-radius: 8px;
+    background: rgba(14, 14, 17, 0.72);
+    box-shadow:
+      inset 0 0 0 1px rgba(58, 73, 74, 0.44),
+      inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  :deep(.el-input__wrapper:hover) {
+    box-shadow:
+      inset 0 0 0 1px rgba(99, 247, 255, 0.24),
+      inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  :deep(.el-input__inner) {
     font-size: 13px;
+  }
 
-    &:focus-visible {
-      border-color: var(--field-border-strong);
-      background: var(--field-bg-elevated);
-      box-shadow: var(--field-shadow-focus);
-    }
-
-    &:hover {
-      border-color: rgba(99, 247, 255, 0.24);
-    }
+  :deep(.el-input.is-focus .el-input__wrapper) {
+    background: rgba(14, 14, 17, 0.84);
+    box-shadow:
+      0 0 0 1px rgba(99, 247, 255, 0.18),
+      0 10px 24px rgba(0, 0, 0, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
 }
 
 .search-icon {
-  position: absolute;
-  top: 50%;
-  left: 12px;
-  transform: translateY(-50%);
-  color: rgba(185, 202, 202, 0.7);
+  color: rgba(185, 202, 202, 0.62);
 }
 
 .session-group + .session-group {

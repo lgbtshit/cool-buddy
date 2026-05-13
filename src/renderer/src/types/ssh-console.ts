@@ -1,4 +1,4 @@
-export type Locale = 'zh-CN' | 'en-US';
+export type { Locale } from '../../../shared/locale';
 
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
 export type SessionGroup = 'production' | 'staging' | 'local';

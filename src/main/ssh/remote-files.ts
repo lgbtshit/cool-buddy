@@ -1,4 +1,6 @@
-import { basename, posix } from 'path';
+import { basename, join, posix } from 'path';
+import { mkdtemp, readFile, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
 import type { FileEntry } from 'ssh2';
 import { ensureSftp } from './ssh-runtime';
 import type {
@@ -8,6 +10,7 @@ import type {
   RemotePathCompletionResult,
   RemoteListPayload,
   RemoteMkdirPayload,
+  RemoteOpenFilePayload,
   RemoteReadPayload,
   RemoteWriteTextPayload,
   RemoteRenamePayload,
@@ -298,6 +301,28 @@ export async function readRemoteFile(payload: RemoteReadPayload) {
   return {
     path: targetPath,
     content: fileBuffer.toString('utf8')
+  };
+}
+
+export async function downloadRemoteFileToTemp(payload: RemoteOpenFilePayload) {
+  const targetPath = normalizeRemotePath(payload.path);
+  const fileBuffer = await sftpReadFile(targetPath);
+  const tempDirectory = await mkdtemp(join(tmpdir(), 'cool-buddy-remote-'));
+  const localPath = join(tempDirectory, basename(targetPath));
+  await writeFile(localPath, fileBuffer);
+  return {
+    path: targetPath,
+    localPath
+  };
+}
+
+export async function syncLocalFileToRemote(payload: { localPath: string; remotePath: string }) {
+  const targetPath = normalizeRemotePath(payload.remotePath);
+  const fileBuffer = await readFile(payload.localPath);
+  await sftpWriteFile(targetPath, fileBuffer);
+  return {
+    ok: true as const,
+    path: targetPath
   };
 }
 

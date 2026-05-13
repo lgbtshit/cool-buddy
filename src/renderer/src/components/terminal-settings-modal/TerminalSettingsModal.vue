@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { Bot, Check, ChevronDown, KeyRound, Link2, RefreshCw, Waypoints } from 'lucide-vue-next';
+import { ElInput, ElOption, ElSelect } from 'element-plus';
+import 'element-plus/es/components/input/style/css';
+import 'element-plus/es/components/option/style/css';
+import 'element-plus/es/components/select/style/css';
+import { Bot, KeyRound, Link2, RefreshCw, Waypoints } from 'lucide-vue-next';
 import { storeToRefs } from 'pinia';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useAppCopy } from '../../composables/use-app-copy';
 import { useSshConsoleStore } from '../../stores/ssh-console';
-import type { AgentProviderCode } from '../../types/ssh-console';
 
 const store = useSshConsoleStore();
 const {
@@ -21,10 +24,6 @@ const {
 const { locale, t } = useAppCopy();
 
 const activeCategory = ref<'provider'>('provider');
-const providerMenuOpen = ref(false);
-const modelMenuOpen = ref(false);
-const providerPickerRef = ref<HTMLElement | null>(null);
-const modelPickerRef = ref<HTMLElement | null>(null);
 
 const selectedProviderDescription = computed(() => {
   return (
@@ -60,94 +59,23 @@ const selectedModelOption = computed(() => {
   );
 });
 
-const filteredAgentModels = computed(() => {
-  const keyword = agentSettings.value.modelName.trim().toLowerCase();
-  if (!keyword) {
-    return agentModelOptions.value;
+const providerCodeModel = computed({
+  get: () => agentSettings.value.providerCode,
+  set: (value) => {
+    store.applyAgentProviderCode(value);
   }
-
-  return agentModelOptions.value.filter((model) => {
-    const id = model.id.toLowerCase();
-    const name = model.name.toLowerCase();
-    return id.includes(keyword) || name.includes(keyword);
-  });
 });
 
-function toggleProviderMenu() {
-  providerMenuOpen.value = !providerMenuOpen.value;
-  if (providerMenuOpen.value) {
-    modelMenuOpen.value = false;
+const modelNameModel = computed({
+  get: () => agentSettings.value.modelName,
+  set: (value) => {
+    store.updateAgentModelName(value);
   }
-}
-
-function selectProvider(providerCode: AgentProviderCode) {
-  store.applyAgentProviderCode(providerCode);
-  providerMenuOpen.value = false;
-  modelMenuOpen.value = false;
-}
-
-function toggleModelMenu() {
-  if (!agentModelOptions.value.length && !agentModelsLoading.value) {
-    return;
-  }
-
-  modelMenuOpen.value = !modelMenuOpen.value;
-  if (modelMenuOpen.value) {
-    providerMenuOpen.value = false;
-  }
-}
-
-function openModelMenu() {
-  if (agentModelOptions.value.length || agentModelsLoading.value) {
-    modelMenuOpen.value = true;
-    providerMenuOpen.value = false;
-  }
-}
-
-function selectModel(modelId: string) {
-  store.updateAgentModelName(modelId);
-  modelMenuOpen.value = false;
-}
+});
 
 async function loadProviderModels() {
   await store.loadProviderModels();
 }
-
-function handleWindowPointerDown(event: MouseEvent) {
-  const target = event.target;
-  if (!(target instanceof Node)) {
-    return;
-  }
-
-  if (
-    providerMenuOpen.value &&
-    providerPickerRef.value &&
-    !providerPickerRef.value.contains(target)
-  ) {
-    providerMenuOpen.value = false;
-  }
-
-  if (modelMenuOpen.value && modelPickerRef.value && !modelPickerRef.value.contains(target)) {
-    modelMenuOpen.value = false;
-  }
-}
-
-function handleEscape(event: KeyboardEvent) {
-  if (event.key === 'Escape') {
-    providerMenuOpen.value = false;
-    modelMenuOpen.value = false;
-  }
-}
-
-onMounted(() => {
-  window.addEventListener('mousedown', handleWindowPointerDown);
-  window.addEventListener('keydown', handleEscape);
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener('mousedown', handleWindowPointerDown);
-  window.removeEventListener('keydown', handleEscape);
-});
 </script>
 
 <template>
@@ -184,71 +112,57 @@ onBeforeUnmount(() => {
             <div v-else class="form-grid">
               <label>
                 <span>{{ t('agentProviderLabel') }}</span>
-                <div ref="providerPickerRef" class="provider-picker">
-                  <button
-                    class="provider-picker-trigger"
-                    :class="{ open: providerMenuOpen }"
-                    type="button"
-                    @click="toggleProviderMenu"
+                <ElSelect
+                  v-model="providerCodeModel"
+                  class="provider-select"
+                  placement="bottom-start"
+                  popper-class="cool-buddy-select-popper"
+                >
+                  <ElOption
+                    v-for="provider in agentProviderOptions"
+                    :key="provider.code"
+                    :label="provider.name"
+                    :value="provider.code"
                   >
-                    <span class="provider-picker-value">{{ selectedProviderName }}</span>
-                    <ChevronDown :size="16" class="provider-picker-caret" />
-                  </button>
-
-                  <div v-if="providerMenuOpen" class="provider-picker-menu">
-                    <button
-                      v-for="provider in agentProviderOptions"
-                      :key="provider.code"
-                      class="provider-picker-option"
-                      :class="{ active: provider.code === agentSettings.providerCode }"
-                      type="button"
-                      @click="selectProvider(provider.code)"
-                    >
-                      <span class="provider-picker-option-main">
-                        <span class="provider-picker-option-name">{{ provider.name }}</span>
-                        <span class="provider-picker-option-description">
-                          {{ provider.description }}
-                        </span>
-                      </span>
-                      <Check
-                        v-if="provider.code === agentSettings.providerCode"
-                        :size="15"
-                        class="provider-picker-check"
-                      />
-                    </button>
-                  </div>
-                </div>
+                    <div class="provider-option">
+                      <span class="provider-option-name">{{ provider.name }}</span>
+                      <span class="provider-option-description">{{ provider.description }}</span>
+                    </div>
+                  </ElOption>
+                </ElSelect>
               </label>
 
               <div class="provider-note">
-                <span class="provider-badge">{{ agentSettings.providerName }}</span>
+                <span class="provider-badge">{{ selectedProviderName }}</span>
                 <p>{{ selectedProviderDescription }}</p>
               </div>
 
               <label>
                 <span>{{ t('agentProviderUrlLabel') }}</span>
-                <div class="field-shell">
-                  <Link2 :size="15" />
-                  <input
-                    :value="agentSettings.baseUrl"
-                    :placeholder="t('agentProviderUrlPlaceholder')"
-                    type="text"
-                    @input="store.updateAgentBaseUrl(($event.target as HTMLInputElement).value)"
-                  />
-                </div>
+                <ElInput
+                  :model-value="agentSettings.baseUrl"
+                  :placeholder="t('agentProviderUrlPlaceholder')"
+                  @update:model-value="store.updateAgentBaseUrl"
+                >
+                  <template #prefix>
+                    <Link2 :size="15" />
+                  </template>
+                </ElInput>
               </label>
 
               <label>
                 <span>{{ t('agentProviderKeyLabel') }}</span>
-                <div class="field-shell">
-                  <KeyRound :size="15" />
-                  <input
-                    :value="agentSettings.apiKey"
-                    :placeholder="t('agentProviderKeyPlaceholder')"
-                    type="password"
-                    @input="store.updateAgentApiKey(($event.target as HTMLInputElement).value)"
-                  />
-                </div>
+                <ElInput
+                  :model-value="agentSettings.apiKey"
+                  :placeholder="t('agentProviderKeyPlaceholder')"
+                  type="password"
+                  show-password
+                  @update:model-value="store.updateAgentApiKey"
+                >
+                  <template #prefix>
+                    <KeyRound :size="15" />
+                  </template>
+                </ElInput>
               </label>
 
               <label>
@@ -264,65 +178,37 @@ onBeforeUnmount(() => {
                     <span>{{ t('agentProviderLoadModels') }}</span>
                   </button>
                 </div>
-                <div ref="modelPickerRef" class="model-picker">
-                  <div class="field-shell field-shell-picker" :class="{ open: modelMenuOpen }">
+                <ElSelect
+                  v-model="modelNameModel"
+                  class="provider-select"
+                  filterable
+                  allow-create
+                  default-first-option
+                  reserve-keyword
+                  :loading="agentModelsLoading"
+                  :loading-text="t('loadingSessions')"
+                  :no-data-text="'No loaded models yet.'"
+                  :no-match-text="'No matching loaded models.'"
+                  :placeholder="t('agentProviderModelPlaceholder')"
+                  popper-class="cool-buddy-select-popper"
+                >
+                  <template #prefix>
                     <Waypoints :size="15" />
-                    <input
-                      :value="agentSettings.modelName"
-                      :placeholder="t('agentProviderModelPlaceholder')"
-                      type="text"
-                      @focus="openModelMenu"
-                      @input="
-                        store.updateAgentModelName(($event.target as HTMLInputElement).value);
-                        openModelMenu();
-                      "
-                    />
-                    <button
-                      class="field-shell-caret"
-                      :disabled="!agentModelOptions.length && !agentModelsLoading"
-                      type="button"
-                      @click="toggleModelMenu"
-                    >
-                      <ChevronDown :size="16" />
-                    </button>
-                  </div>
-                  <div
-                    v-if="modelMenuOpen || agentModelsLoading"
-                    class="provider-picker-menu model-picker-menu"
+                  </template>
+                  <ElOption
+                    v-for="model in agentModelOptions"
+                    :key="model.id"
+                    :label="model.name"
+                    :value="model.id"
                   >
-                    <div v-if="agentModelsLoading" class="model-picker-empty">
-                      {{ t('loadingSessions') }}
+                    <div class="provider-option">
+                      <span class="provider-option-name">{{ model.name }}</span>
+                      <span v-if="model.name !== model.id" class="provider-option-description">
+                        {{ model.id }}
+                      </span>
                     </div>
-                    <template v-else-if="filteredAgentModels.length">
-                      <button
-                        v-for="model in filteredAgentModels"
-                        :key="model.id"
-                        class="provider-picker-option"
-                        :class="{ active: model.id === agentSettings.modelName }"
-                        type="button"
-                        @click="selectModel(model.id)"
-                      >
-                        <span class="provider-picker-option-main">
-                          <span class="provider-picker-option-name">{{ model.name }}</span>
-                          <span
-                            v-if="model.name !== model.id"
-                            class="provider-picker-option-description"
-                          >
-                            {{ model.id }}
-                          </span>
-                        </span>
-                        <Check
-                          v-if="model.id === agentSettings.modelName"
-                          :size="15"
-                          class="provider-picker-check"
-                        />
-                      </button>
-                    </template>
-                    <div v-else class="model-picker-empty">
-                      No matching loaded models. You can keep typing a custom model name.
-                    </div>
-                  </div>
-                </div>
+                  </ElOption>
+                </ElSelect>
               </label>
 
               <p class="helper-text">
@@ -366,6 +252,67 @@ onBeforeUnmount(() => {
 <style scoped lang="scss">
 .terminal-settings-modal {
   width: min(880px, calc(100vw - 40px));
+
+  :deep(.el-input),
+  :deep(.el-select) {
+    --el-input-bg-color: rgba(14, 14, 17, 0.88);
+    --el-fill-color-blank: rgba(14, 14, 17, 0.88);
+    --el-fill-color-light: rgba(14, 14, 17, 0.88);
+    --el-text-color-regular: rgba(228, 225, 230, 0.92);
+    --el-text-color-placeholder: rgba(185, 202, 202, 0.46);
+    --el-border-color: rgba(58, 73, 74, 0.42);
+    --el-border-color-hover: rgba(99, 247, 255, 0.24);
+    --el-border-color-focus: rgba(99, 247, 255, 0.52);
+  }
+
+  :deep(.el-input__wrapper),
+  :deep(.el-select__wrapper) {
+    min-height: 42px;
+    padding: 0 14px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(30, 32, 37, 0.98) 0%, rgba(20, 22, 26, 0.98) 100%);
+    box-shadow: inset 0 0 0 1px rgba(58, 73, 74, 0.42);
+  }
+
+  :deep(.el-input__wrapper:hover),
+  :deep(.el-select__wrapper:hover) {
+    box-shadow: inset 0 0 0 1px rgba(99, 247, 255, 0.24);
+  }
+
+  :deep(.el-input.is-focus .el-input__wrapper),
+  :deep(.el-select.is-focused .el-select__wrapper) {
+    background: linear-gradient(180deg, rgba(33, 36, 40, 0.98) 0%, rgba(22, 25, 28, 0.98) 100%);
+    box-shadow:
+      0 0 0 1px rgba(99, 247, 255, 0.14),
+      0 10px 28px rgba(0, 0, 0, 0.28);
+  }
+
+  :deep(.el-input__inner),
+  :deep(.el-select__selected-item),
+  :deep(.el-select__placeholder) {
+    color: rgba(228, 225, 230, 0.92);
+    font-size: 13px;
+  }
+
+  :deep(.el-input__prefix),
+  :deep(.el-input__suffix),
+  :deep(.el-select__prefix),
+  :deep(.el-select__suffix),
+  :deep(.el-input__icon),
+  :deep(.el-select__caret) {
+    color: rgba(185, 202, 202, 0.66);
+  }
+
+  :deep(.el-input__prefix-inner),
+  :deep(.el-input__suffix-inner),
+  :deep(.el-select__prefix),
+  :deep(.el-select__suffix) {
+    gap: 8px;
+  }
+
+  :deep(.el-select__selection) {
+    min-width: 0;
+  }
 }
 
 .settings-shell {
@@ -450,13 +397,9 @@ onBeforeUnmount(() => {
     }
   }
 
-  input {
+  :deep(.el-input),
+  :deep(.el-select) {
     width: 100%;
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    color: var(--text);
-    font-size: 13px;
   }
 }
 
@@ -490,148 +433,22 @@ onBeforeUnmount(() => {
   animation: spin 900ms linear infinite;
 }
 
-.provider-picker {
-  position: relative;
-}
-
-.model-picker {
-  position: relative;
-}
-
-.provider-picker-trigger {
-  display: flex;
-  width: 100%;
-  min-height: 44px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 14px;
-  border: 1px solid var(--field-border);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(30, 32, 37, 0.98) 0%, rgba(20, 22, 26, 0.98) 100%);
-  color: var(--text);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
-
-  &:hover {
-    border-color: rgba(99, 247, 255, 0.26);
-    background: linear-gradient(180deg, rgba(33, 36, 40, 0.98) 0%, rgba(22, 25, 28, 0.98) 100%);
-  }
-
-  &:focus-visible,
-  &.open {
-    border-color: rgba(99, 247, 255, 0.36);
-    box-shadow:
-      0 0 0 1px rgba(99, 247, 255, 0.08),
-      0 10px 28px rgba(0, 0, 0, 0.32);
-  }
-}
-
-.provider-picker-value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.provider-picker-caret {
-  flex: 0 0 auto;
-  color: rgba(185, 202, 202, 0.7);
-  transition: transform 160ms ease;
-
-  .provider-picker-trigger.open & {
-    transform: rotate(180deg);
-  }
-}
-
-.provider-picker-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 8px);
-  left: 0;
-  width: 100%;
-  max-height: 260px;
-  overflow: auto;
-  padding: 6px;
-  border: 1px solid rgba(73, 86, 91, 0.52);
-  border-radius: 10px;
-  background: rgba(18, 20, 24, 0.98);
-  box-shadow:
-    0 18px 40px rgba(0, 0, 0, 0.48),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(14px);
-
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    border: 2px solid transparent;
-    border-radius: 999px;
-    background: rgba(121, 138, 144, 0.44);
-    background-clip: padding-box;
-  }
-}
-
-.provider-picker-option {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 42px;
-  padding: 9px 10px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: rgba(228, 225, 230, 0.9);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    transform 140ms ease;
-
-  &:hover {
-    border-color: rgba(99, 247, 255, 0.12);
-    background: rgba(99, 247, 255, 0.06);
-  }
-
-  &.active {
-    border-color: rgba(99, 247, 255, 0.16);
-    background: rgba(35, 49, 54, 0.78);
-  }
-}
-
-.provider-picker-option-main {
+.provider-option {
   display: grid;
   gap: 2px;
-  min-width: 0;
-  flex: 1;
 }
 
-.provider-picker-option-name {
+.provider-option-name {
   color: rgba(236, 238, 240, 0.96);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.25;
 }
 
-.provider-picker-option-description {
+.provider-option-description {
   color: rgba(165, 178, 184, 0.72);
   font-size: 10px;
   line-height: 1.35;
-}
-
-.provider-picker-check {
-  flex: 0 0 auto;
-  margin-top: 1px;
-  color: var(--cyan-soft);
 }
 
 .provider-note {
@@ -657,85 +474,6 @@ onBeforeUnmount(() => {
   color: var(--cyan-soft);
   font-size: 11px;
   font-weight: 600;
-}
-
-.field-shell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 12px;
-  border: 1px solid var(--field-border);
-  border-radius: 8px;
-  background: var(--field-bg);
-  color: rgba(185, 202, 202, 0.72);
-
-  &:focus-within {
-    border-color: var(--field-border-strong);
-    background: var(--field-bg-elevated);
-    box-shadow: var(--field-shadow-focus);
-  }
-
-  input {
-    height: 42px;
-  }
-}
-
-.field-shell-picker {
-  padding-right: 6px;
-  transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease;
-
-  &.open {
-    border-color: rgba(99, 247, 255, 0.36);
-    background: var(--field-bg-elevated);
-    box-shadow: 0 0 0 1px rgba(99, 247, 255, 0.08);
-  }
-}
-
-.field-shell-caret {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: rgba(185, 202, 202, 0.72);
-  cursor: pointer;
-  transition:
-    background 140ms ease,
-    color 140ms ease,
-    transform 140ms ease;
-
-  &:hover:not(:disabled) {
-    background: rgba(99, 247, 255, 0.1);
-    color: var(--cyan-soft);
-  }
-
-  &:disabled {
-    opacity: 0.38;
-    cursor: not-allowed;
-  }
-
-  .field-shell-picker.open & {
-    color: var(--cyan-soft);
-    transform: rotate(180deg);
-  }
-}
-
-.model-picker-menu {
-  top: calc(100% + 6px);
-}
-
-.model-picker-empty {
-  padding: 12px;
-  color: rgba(185, 202, 202, 0.68);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .footnote,

@@ -2,6 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { messages, type MessageKey } from '../i18n';
 import { httpClient } from '../lib/http-client';
+import { fallbackLocale, resolveLocale } from '../../../shared/locale';
 import type {
   AgentApprovalRequest,
   AgentModelOption,
@@ -27,6 +28,8 @@ import type {
 } from '../types/ssh-console';
 
 const TAB_STORAGE_KEY = 'cool-buddy:open-tabs';
+const LOCALE_STORAGE_KEY = 'cool-buddy:locale';
+const AGENT_PROVIDER_DRAFTS_STORAGE_KEY = 'cool-buddy:agent-provider-drafts';
 const LIVE_METRICS_REFRESH_INTERVAL_MS = 2000;
 const FULL_METRICS_REFRESH_INTERVAL_MS = 15000;
 const LATENCY_REFRESH_INTERVAL_MS = 5000;
@@ -241,6 +244,28 @@ function createDefaultAgentProviderSettings(): AgentProviderSettings {
   };
 }
 
+function createAgentProviderSettingsFromPreset(
+  providerCode: AgentProviderCode,
+  overrides?: Partial<AgentProviderSettings>
+): AgentProviderSettings {
+  const preset = getAgentProviderPreset(providerCode);
+  const nextSettings: AgentProviderSettings = {
+    providerCode: preset.code,
+    providerName: preset.name,
+    baseUrl: preset.baseUrl,
+    apiKey: '',
+    modelName: getDefaultAgentModelName(preset.code),
+    updatedAt: null
+  };
+
+  return {
+    ...nextSettings,
+    ...overrides,
+    providerCode: preset.code,
+    providerName: preset.name
+  };
+}
+
 function createDefaultAgentStateSnapshot(): AgentStateSnapshot {
   return {
     messages: [],
@@ -265,14 +290,48 @@ function sortRemoteEntries(entries: RemoteEntry[]): RemoteEntry[] {
   });
 }
 
+function getInitialLocale(): Locale {
+  const storedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+  if (storedLocale) {
+    return resolveLocale(storedLocale);
+  }
+
+  const browserLocale = navigator.languages?.[0] ?? navigator.language;
+  return resolveLocale(browserLocale);
+}
+
+function formatMessage(template: string, params?: Record<string, string | number>): string {
+  if (!params) {
+    return template;
+  }
+
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => {
+    const value = params[key];
+    return value === undefined ? match : String(value);
+  });
+}
+
+type AgentProviderDraftMap = Partial<Record<AgentProviderCode, AgentProviderSettings>>;
+
+function getStoredAgentProviderDrafts(): AgentProviderDraftMap {
+  try {
+    const raw = window.localStorage.getItem(AGENT_PROVIDER_DRAFTS_STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as AgentProviderDraftMap;
+  } catch {
+    return {};
+  }
+}
+
 export const useSshConsoleStore = defineStore('ssh-console', () => {
-  const locale = ref<Locale>('zh-CN');
+  const initialLocale = getInitialLocale();
+  const locale = ref<Locale>(initialLocale);
   const sessions = ref<SessionItem[]>([]);
   const openTabIds = ref<string[]>([]);
   const activeSessionId = ref('');
   const searchQuery = ref('');
   const status = ref<ConnectionState>('idle');
-  const statusMessage = ref<string>(messages['zh-CN'].ready);
+  const statusMessage = ref<string>(messages[initialLocale].ready);
   const latencyMs = ref<number | null>(null);
   const aiInput = ref('');
   const agentRuntime = ref<AgentStateSnapshot>(createDefaultAgentStateSnapshot());
@@ -284,6 +343,10 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const agentSettingsLoaded = ref(false);
   const agentSettingsError = ref('');
   const agentSettings = ref<AgentProviderSettings>(createDefaultAgentProviderSettings());
+  const agentProviderDrafts = ref<AgentProviderDraftMap>(getStoredAgentProviderDrafts());
+  const agentModelOptionsByProvider = ref<Partial<Record<AgentProviderCode, AgentModelOption[]>>>(
+    {}
+  );
   const sessionsLoaded = ref(false);
   const sessionModalOpen = ref(false);
   const tabMenu = ref<TabMenuState | null>(null);
@@ -314,7 +377,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const form = ref<ConnectionForm>(createDefaultForm());
   const sessionDraft = ref<SessionDraft>(createDefaultSessionDraft());
 
-  const t = (key: MessageKey): string => messages[locale.value][key];
+  const t = (key: MessageKey, params?: Record<string, string | number>): string =>
+    formatMessage(messages[locale.value][key] ?? messages[fallbackLocale][key], params);
 
   const filteredSessions = computed(() => {
     const query = searchQuery.value.trim().toLowerCase();
@@ -398,7 +462,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   }
 
   function applyLocale() {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale.value);
     httpClient.defaults.headers.common['Accept-Language'] = locale.value;
+    void window.api.app.setLocale(locale.value);
 
     statusMessage.value =
       status.value === 'connected' && activeSession.value
@@ -412,6 +478,28 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
   function persistOpenTabs() {
     window.localStorage.setItem(TAB_STORAGE_KEY, JSON.stringify(openTabIds.value));
+  }
+
+  function persistAgentProviderDrafts() {
+    window.localStorage.setItem(
+      AGENT_PROVIDER_DRAFTS_STORAGE_KEY,
+      JSON.stringify(agentProviderDrafts.value)
+    );
+  }
+
+  function cacheAgentProviderDraft(settings: AgentProviderSettings) {
+    agentProviderDrafts.value = {
+      ...agentProviderDrafts.value,
+      [settings.providerCode]: {
+        ...settings
+      }
+    };
+    persistAgentProviderDrafts();
+  }
+
+  function applyAgentSettingsSnapshot(settings: AgentProviderSettings) {
+    agentSettings.value = settings;
+    agentModelOptions.value = agentModelOptionsByProvider.value[settings.providerCode] ?? [];
   }
 
   function ensureTabOpen(sessionId: string) {
@@ -490,15 +578,13 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   }
 
   function applyAgentProviderCode(providerCode: AgentProviderCode) {
-    const preset = getAgentProviderPreset(providerCode);
-    agentSettings.value = {
-      ...agentSettings.value,
-      providerCode: preset.code,
-      providerName: preset.name,
-      baseUrl: preset.baseUrl || agentSettings.value.baseUrl,
-      modelName: getDefaultAgentModelName(preset.code)
-    };
-    agentModelOptions.value = [];
+    cacheAgentProviderDraft(agentSettings.value);
+
+    const nextSettings =
+      agentProviderDrafts.value[providerCode] ??
+      createAgentProviderSettingsFromPreset(providerCode);
+
+    applyAgentSettingsSnapshot(nextSettings);
   }
 
   async function loadAgentSettings(options?: { force?: boolean }) {
@@ -510,7 +596,13 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     agentSettingsError.value = '';
 
     try {
-      agentSettings.value = await window.api.agentSettings.getProvider();
+      const loadedSettings = await window.api.agentSettings.getProvider();
+      cacheAgentProviderDraft(loadedSettings);
+
+      const preferredSettings =
+        agentProviderDrafts.value[loadedSettings.providerCode] ?? loadedSettings;
+
+      applyAgentSettingsSnapshot(preferredSettings);
       agentSettingsLoaded.value = true;
       await loadHarmlessAgentState();
     } catch (error) {
@@ -527,29 +619,36 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   }
 
   function closeAgentSettingsModal() {
+    cacheAgentProviderDraft(agentSettings.value);
     agentSettingsOpen.value = false;
     agentSettingsError.value = '';
   }
 
   function updateAgentBaseUrl(value: string) {
-    agentSettings.value = {
+    const nextSettings = {
       ...agentSettings.value,
       baseUrl: value
     };
+    agentSettings.value = nextSettings;
+    cacheAgentProviderDraft(nextSettings);
   }
 
   function updateAgentApiKey(value: string) {
-    agentSettings.value = {
+    const nextSettings = {
       ...agentSettings.value,
       apiKey: value
     };
+    agentSettings.value = nextSettings;
+    cacheAgentProviderDraft(nextSettings);
   }
 
   function updateAgentModelName(value: string) {
-    agentSettings.value = {
+    const nextSettings = {
       ...agentSettings.value,
       modelName: value
     };
+    agentSettings.value = nextSettings;
+    cacheAgentProviderDraft(nextSettings);
   }
 
   async function loadProviderModels() {
@@ -567,15 +666,21 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
         baseUrl: agentSettings.value.baseUrl.trim(),
         apiKey: agentSettings.value.apiKey.trim()
       });
+      agentModelOptionsByProvider.value = {
+        ...agentModelOptionsByProvider.value,
+        [agentSettings.value.providerCode]: models
+      };
       agentModelOptions.value = models;
       if (
         models.length > 0 &&
         !models.some((item) => item.id === agentSettings.value.modelName.trim())
       ) {
-        agentSettings.value = {
+        const nextSettings = {
           ...agentSettings.value,
           modelName: models[0].id
         };
+        agentSettings.value = nextSettings;
+        cacheAgentProviderDraft(nextSettings);
       }
       return models;
     } catch (error) {
@@ -613,7 +718,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
         apiKey: agentSettings.value.apiKey.trim(),
         modelName: agentSettings.value.modelName.trim()
       });
-      agentSettings.value = saved;
+      cacheAgentProviderDraft(saved);
+      applyAgentSettingsSnapshot(saved);
       agentSettingsLoaded.value = true;
       agentSettingsOpen.value = false;
       await loadHarmlessAgentState();
@@ -963,7 +1069,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     }
   }
 
-  async function openRemoteEntry(entry: RemoteEntry) {
+  async function previewRemoteEntry(entry: RemoteEntry) {
     explorerError.value = '';
     if (entry.kind === 'directory') {
       await loadRemoteDirectory(entry.path);
@@ -975,6 +1081,23 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       remotePreview.value = await window.api.ssh.readRemoteFile({ path: entry.path });
     } catch (error) {
       explorerError.value = error instanceof Error ? error.message : 'Failed to read file.';
+    } finally {
+      explorerBusy.value = false;
+    }
+  }
+
+  async function openRemoteEntry(entry: RemoteEntry) {
+    explorerError.value = '';
+    if (entry.kind === 'directory') {
+      await loadRemoteDirectory(entry.path);
+      return;
+    }
+
+    explorerBusy.value = true;
+    try {
+      await window.api.ssh.openRemoteFile({ path: entry.path });
+    } catch (error) {
+      explorerError.value = error instanceof Error ? error.message : 'Failed to open file.';
     } finally {
       explorerBusy.value = false;
     }
@@ -1289,8 +1412,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     aiInput.value = value;
   }
 
-  function toggleLocale() {
-    locale.value = locale.value === 'zh-CN' ? 'en-US' : 'zh-CN';
+  function setLocale(nextLocale: Locale) {
+    locale.value = nextLocale;
     applyLocale();
   }
 
@@ -1353,6 +1476,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     logTailStatusMessage,
     metricsLoading,
     openRemoteEntry,
+    previewRemoteEntry,
     openAgentSettingsModal,
     openSessionModal,
     openTabIds,
@@ -1395,7 +1519,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     startLogTail,
     stopLogTail,
     toggleHiddenFiles,
-    toggleLocale,
+    setLocale,
     updateAgentApiKey,
     updateAgentBaseUrl,
     updateAgentModelName,

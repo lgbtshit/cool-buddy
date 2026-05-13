@@ -6,6 +6,7 @@ import type {
   AgentProviderProtocol,
   AgentProviderSettingsItem
 } from '../shared/types';
+import { CompatibleChatOpenAICompletions } from './openai-compatible';
 
 const DEFAULT_MODEL_BY_PROVIDER: Record<AgentProviderCode, string> = {
   openai: 'gpt-4.1-mini',
@@ -78,6 +79,17 @@ export function createAgentModel(settings: AgentProviderSettingsItem): BaseChatM
       temperature: 0,
       apiKey: settings.apiKey,
       clientOptions: {
+        baseURL: baseUrl
+      }
+    });
+  }
+
+  if (settings.providerCode !== 'openai' && settings.providerCode !== 'azure-openai') {
+    return new CompatibleChatOpenAICompletions(settings.providerCode, {
+      model,
+      temperature: 0,
+      apiKey: settings.apiKey,
+      configuration: {
         baseURL: baseUrl
       }
     });

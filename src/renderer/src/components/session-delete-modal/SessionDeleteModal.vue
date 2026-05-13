@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useAppCopy } from '../../composables/use-app-copy';
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   sessionName: string;
 }>();
@@ -11,7 +12,10 @@ const emit = defineEmits<{
   confirm: [];
 }>();
 
-const { locale, t } = useAppCopy();
+const { t } = useAppCopy();
+const descriptionText = computed(() =>
+  t('sessionDeleteDescription', { sessionName: props.sessionName })
+);
 </script>
 
 <template>
@@ -20,13 +24,7 @@ const { locale, t } = useAppCopy();
       <div class="modal-header">
         <div>
           <h2>{{ t('deleteSessionTitle') }}</h2>
-          <p>
-            {{
-              locale === 'zh-CN'
-                ? `确认删除会话“${sessionName}”吗？此操作不会恢复。`
-                : `Delete session "${sessionName}"? This action cannot be undone.`
-            }}
-          </p>
+          <p>{{ descriptionText }}</p>
         </div>
       </div>
 
