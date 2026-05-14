@@ -1,6 +1,6 @@
 {
   "name": "cool-buddy",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "a cool tool for you",
   "main": "./out/main/index.js",
   "author": "ten.x",
