@@ -86,7 +86,7 @@ pnpm build:mac  # macOS arm64 dmg
 
 ## GitHub Release
 
-Push a version tag such as `v1.0.0` to trigger `.github/workflows/release.yml`.
+Publish a GitHub Release for a tag such as `v1.0.0` to trigger `.github/workflows/release.yml`.
 The workflow builds:
 
 - Windows installer (`*-setup.exe`)
