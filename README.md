@@ -82,7 +82,17 @@ pnpm build
 
 ```bash
 pnpm build:win
-pnpm build:mac
+pnpm build:mac  # macOS arm64 dmg
+
+## GitHub Release
+
+Push a version tag such as `v1.0.0` to trigger `.github/workflows/release.yml`.
+The workflow builds:
+
+- Windows installer (`*-setup.exe`)
+- macOS Apple Silicon dmg (`*.dmg`)
+
+Then it publishes both artifacts to the matching GitHub Release automatically.
 pnpm build:linux
 ```
 
