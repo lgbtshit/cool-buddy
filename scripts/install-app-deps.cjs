@@ -25,6 +25,29 @@ function run(command, args, options = {}) {
   return result
 }
 
+function runElectronBuilderDirect(workspaceRoot, env = process.env) {
+  const electronBuilderBin = path.join(
+    workspaceRoot,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'electron-builder.CMD' : 'electron-builder'
+  )
+
+  if (!fs.existsSync(electronBuilderBin)) {
+    fail(`electron-builder executable not found at ${electronBuilderBin}`)
+  }
+
+  const result = run(electronBuilderBin, ['install-app-deps'], {
+    cwd: workspaceRoot,
+    env,
+    stdio: 'inherit'
+  })
+
+  if (result.status !== 0) {
+    process.exit(result.status || 1)
+  }
+}
+
 function withTempBatchFile(prefix, contents, fn) {
   const batchFile = path.join(os.tmpdir(), `${prefix}-${process.pid}-${Date.now()}.cmd`)
   fs.writeFileSync(batchFile, contents, 'utf8')
@@ -148,17 +171,7 @@ function captureVsEnv(vsDevCmd, tempDir) {
 }
 
 function runElectronBuilder(workspaceRoot, env) {
-  const electronBuilderCmd = path.join(
-    workspaceRoot,
-    'node_modules',
-    '.bin',
-    'electron-builder.CMD'
-  )
-
-  if (!fs.existsSync(electronBuilderCmd)) {
-    fail(`electron-builder executable not found at ${electronBuilderCmd}`)
-  }
-
+  const electronBuilderCmd = path.join(workspaceRoot, 'node_modules', '.bin', 'electron-builder.CMD')
   const script = ['@echo off', `call "${electronBuilderCmd}" install-app-deps`].join('\r\n')
 
   const result = withTempBatchFile('native-rebuild-run', script, (batchFile) =>
@@ -247,6 +260,13 @@ function prepareCpuFeaturesBuildcheck(packageDirs, env) {
 
 function main() {
   const workspaceRoot = process.cwd()
+
+  if (process.platform !== 'win32') {
+    log(`Using direct native dependency install on ${process.platform}`)
+    runElectronBuilderDirect(workspaceRoot)
+    return
+  }
+
   const tempDir = getTempDir()
   const vsDevCmd = findVsDevCmd()
 
