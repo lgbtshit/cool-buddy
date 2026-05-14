@@ -16,6 +16,11 @@ jobs:
   build-windows:
     name: Build Windows
     runs-on: windows-latest
+    env:
+      ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+      ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+      npm_config_electron_mirror: https://github.com/electron/electron/releases/download/
+      npm_config_electron_builder_binaries_mirror: https://github.com/electron-userland/electron-builder-binaries/releases/download/
 
     steps:
       - name: Checkout
@@ -53,6 +58,11 @@ jobs:
   build-macos-arm64:
     name: Build macOS ARM64
     runs-on: macos-14
+    env:
+      ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+      ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+      npm_config_electron_mirror: https://github.com/electron/electron/releases/download/
+      npm_config_electron_builder_binaries_mirror: https://github.com/electron-userland/electron-builder-binaries/releases/download/
 
     steps:
       - name: Checkout
