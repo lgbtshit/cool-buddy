@@ -277,6 +277,7 @@ type AppApi = {
     uploadRemoteFile: (payload: {
       directory: string;
       name: string;
+      relativePath?: string;
       data: Uint8Array;
     }) => Promise<{ ok: true; path: string }>;
     createRemoteDirectory: (payload: { path: string }) => Promise<{ ok: true; path: string }>;

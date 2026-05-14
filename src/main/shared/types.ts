@@ -278,6 +278,7 @@ export type RemoteWriteTextPayload = {
 export type RemoteUploadPayload = {
   directory: string;
   name: string;
+  relativePath?: string;
   data: Uint8Array;
 };
 

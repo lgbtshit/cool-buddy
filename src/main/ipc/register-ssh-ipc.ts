@@ -60,18 +60,9 @@ const DEFAULT_WINDOWS_AGENT_PIPE = '\\\\.\\pipe\\openssh-ssh-agent';
 const DEFAULT_PRIVATE_KEY_FILENAMES = ['id_ed25519', 'id_ecdsa', 'id_rsa', 'id_dsa'] as const;
 
 /**
- * Function: getDefaultPrivateKeyCandidates
- * Purpose:
- *   Builds the ordered list of common default private key locations under the
- *   current user's `~/.ssh` directory.
- * Parameters:
- *   None.
- * Returns:
- *   An ordered array of absolute candidate key paths.
- * Example:
- *   On Windows this may return:
- *   `C:\Users\<user>\.ssh\id_ed25519`,
- *   `C:\Users\<user>\.ssh\id_rsa`, ...
+ * 获取当前用户 `.ssh` 目录下常见默认私钥文件的候选路径。
+ * @param 无 无参数
+ * @return string[] 默认私钥候选绝对路径列表
  */
 function getDefaultPrivateKeyCandidates(): string[] {
   const sshDirectory = join(homedir(), '.ssh');
@@ -79,16 +70,9 @@ function getDefaultPrivateKeyCandidates(): string[] {
 }
 
 /**
- * Function: getReadableDefaultPrivateKeyPaths
- * Purpose:
- *   Filters the common default key locations down to the private key files
- *   that are actually present and readable on the current machine.
- * Parameters:
- *   None.
- * Returns:
- *   An ordered array of readable private key paths.
- * Example:
- *   If only `~/.ssh/id_ed25519` exists, the result contains that single path.
+ * 过滤出本机上真实存在且可读取的默认私钥路径。
+ * @param 无 无参数
+ * @return string[] 可读取的默认私钥绝对路径列表
  */
 function getReadableDefaultPrivateKeyPaths(): string[] {
   return getDefaultPrivateKeyCandidates().filter((candidatePath) => {
@@ -102,21 +86,9 @@ function getReadableDefaultPrivateKeyPaths(): string[] {
 }
 
 /**
- * Function: canUseSystemAgentSync
- * Purpose:
- *   Checks whether the local system SSH agent is actually usable for
- *   authentication by asking the platform `ssh-add` client for the current key
- *   list. This avoids optimistic but unreliable named-pipe probing on
- *   Windows.
- * Parameters:
- *   None.
- * Returns:
- *   `true` when the local SSH agent is reachable, otherwise `false`.
- * Example:
- *   `ssh-add -l` returns exit code:
- *   - `0` when keys are loaded
- *   - `1` when the agent is reachable but has no identities
- *   - `2` when the agent is unavailable
+ * 检查当前系统 SSH Agent 是否可用，避免仅凭环境变量或管道路径做乐观判断。
+ * @param 无 无参数
+ * @return boolean 可用时返回 true，否则返回 false
  */
 function canUseSystemAgentSync(): boolean {
   const probe = spawnSync('ssh-add', ['-l'], {
@@ -133,19 +105,9 @@ function canUseSystemAgentSync(): boolean {
 }
 
 /**
- * Function: getConfiguredAgentPath
- * Purpose:
- *   Resolves the most likely local SSH agent endpoint for the current
- *   operating system so SSH key authentication can prefer the system agent
- *   before falling back to direct private key usage.
- * Parameters:
- *   None.
- * Returns:
- *   A string agent endpoint understood by `ssh2`, or `null` when no sensible
- *   agent target can be inferred.
- * Example:
- *   - macOS/Linux with `SSH_AUTH_SOCK` set -> that socket path
- *   - Windows with a reachable OpenSSH agent -> `\\.\pipe\openssh-ssh-agent`
+ * 推断 ssh2 可使用的本地 SSH Agent 连接地址。
+ * @param 无 无参数
+ * @return string | null 可用的 Agent 地址；无可用地址时返回 null
  */
 function getConfiguredAgentPath(): string | null {
   if (process.env.SSH_AUTH_SOCK?.trim()) {
@@ -160,18 +122,9 @@ function getConfiguredAgentPath(): string | null {
 }
 
 /**
- * Function: buildSshAuthCapabilities
- * Purpose:
- *   Collects the local SSH authentication capabilities that the renderer uses
- *   to present sensible defaults and helper text for new session creation.
- * Parameters:
- *   None.
- * Returns:
- *   A promise that resolves to the local SSH authentication capability
- *   snapshot.
- * Example:
- *   When the machine has a running agent and `~/.ssh/id_ed25519`, the returned
- *   capability object reports both so the UI can default to system key auth.
+ * 汇总当前机器的 SSH 认证能力，供前端表单决定默认认证方式与提示文案。
+ * @param 无 无参数
+ * @return Promise<SshAuthCapabilities> SSH 认证能力快照
  */
 async function buildSshAuthCapabilities(): Promise<SshAuthCapabilities> {
   const detectedDefaultKeyPaths = getReadableDefaultPrivateKeyPaths();
@@ -186,22 +139,9 @@ async function buildSshAuthCapabilities(): Promise<SshAuthCapabilities> {
 }
 
 /**
- * Function: buildConnectConfig
- * Purpose:
- *   Converts the renderer SSH connection payload into an `ssh2` connection
- *   configuration that supports password authentication, system agent usage,
- *   default key discovery, and manually selected private keys.
- * Parameters:
- *   payload:
- *     The renderer-provided SSH connection request.
- * Returns:
- *   A fully prepared `ssh2` connection configuration.
- * Example:
- *   - Password auth -> uses a single password auth method.
- *   - System key/default -> tries readable default private keys under `~/.ssh`
- *     first, then the system agent if it is actually reachable.
- *   - System key/custom -> reads the chosen private key file and passes the
- *     optional passphrase to `ssh2`.
+ * 将前端传入的连接参数转换成 ssh2 可直接使用的连接配置。
+ * @param payload 前端提交的 SSH 连接参数
+ * @return ConnectConfig 组装完成的 ssh2 连接配置
  */
 function buildConnectConfig(payload: SshConnectPayload): ConnectConfig {
   const authMethods: Array<PasswordAuthMethod | PublicKeyAuthMethod | AgentAuthMethod> = [];
@@ -278,6 +218,11 @@ function buildConnectConfig(payload: SshConnectPayload): ConnectConfig {
   return connectConfig;
 }
 
+/**
+ * 根据当前界面语言返回远程文件编辑相关弹窗文案。
+ * @param 无 无参数
+ * @return object 多语言弹窗文案集合
+ */
 function getRemoteFileDialogCopy() {
   switch (getAppLocale()) {
     case 'zh-CN':
@@ -404,20 +349,55 @@ ${remotePath}`,
   }
 }
 
+/**
+ * 将多行命令包装成一次性的 shell 批处理脚本。
+ * @param content 命令文本内容
+ * @return string 可直接提交到远程 shell 的批处理脚本
+ */
 function createCommandBatch(content: string): string {
   const delimiter = `COOL_BUDDY_BATCH_${Date.now().toString(36)}`;
   return `sh -se <<'${delimiter}'\n${content}\n${delimiter}`;
 }
 
+/**
+ * 对 shell 参数做单引号转义，避免远程命令拼接时出现注入或语法错误。
+ * @param value 原始参数值
+ * @return string 转义后的 shell 参数
+ */
 function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\"'\"'`)}'`;
 }
 
+/**
+ * 将系统返回的打开文件失败消息转换成更容易理解的业务错误提示。
+ * @param openError shell.openPath 返回的原始错误文案
+ * @param localPath 本地临时文件路径
+ * @param remotePath 对应的远程文件路径
+ * @return string 可直接展示给用户的错误提示
+ */
+function formatOpenRemoteFileError(openError: string, localPath: string, remotePath: string): string {
+  if (/requested file or directory could not be found/i.test(openError)) {
+    return `无法打开远程文件，系统在处理打开请求时没有找到对应的本地临时文件。\n远程文件：${remotePath}\n本地临时文件：${localPath}`;
+  }
+
+  return `无法打开远程文件。\n远程文件：${remotePath}\n本地临时文件：${localPath}\n系统消息：${openError}`;
+}
+
+/**
+ * 停止监听某个已打开远程文件对应的本地临时文件。
+ * @param localPath 本地临时文件路径
+ * @return void 无返回
+ */
 function disposeRemoteOpenFileWatch(localPath: string): void {
   unwatchFile(localPath);
   openRemoteFileWatches.delete(localPath);
 }
 
+/**
+ * 停止监听所有已打开远程文件对应的本地临时文件。
+ * @param 无 无参数
+ * @return void 无返回
+ */
 function disposeRemoteOpenFileWatches(): void {
   for (const localPath of openRemoteFileWatches.keys()) {
     unwatchFile(localPath);
@@ -426,6 +406,12 @@ function disposeRemoteOpenFileWatches(): void {
   openRemoteFileWatches.clear();
 }
 
+/**
+ * 为已打开的远程文件注册本地变更监听，便于用户保存后回传到远端。
+ * @param localPath 本地临时文件路径
+ * @param remotePath 对应的远程文件路径
+ * @return void 无返回
+ */
 function registerRemoteOpenFileWatch(localPath: string, remotePath: string): void {
   for (const [trackedPath, trackedWatch] of openRemoteFileWatches.entries()) {
     if (trackedWatch.remotePath === remotePath) {
@@ -508,6 +494,11 @@ function registerRemoteOpenFileWatch(localPath: string, remotePath: string): voi
   });
 }
 
+/**
+ * 以始终置顶的方式展示原生弹窗，避免窗口被其他应用遮挡。
+ * @param options Electron 消息框配置
+ * @return Promise<Electron.MessageBoxReturnValue> 用户操作结果
+ */
 async function showTopmostNativeDialog(
   options: Electron.MessageBoxOptions
 ): Promise<Electron.MessageBoxReturnValue> {
@@ -770,7 +761,9 @@ exec tail -n ${lineCount} -f -- ${quoteShellArg(path)}
     const downloadedFile = await downloadRemoteFileToTemp(payload);
     const openError = await shell.openPath(downloadedFile.localPath);
     if (openError) {
-      throw new Error(openError);
+      throw new Error(
+        formatOpenRemoteFileError(openError, downloadedFile.localPath, downloadedFile.path)
+      );
     }
     registerRemoteOpenFileWatch(downloadedFile.localPath, downloadedFile.path);
     return downloadedFile;

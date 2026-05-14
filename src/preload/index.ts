@@ -302,6 +302,7 @@ const api = {
     uploadRemoteFile: (payload: {
       directory: string;
       name: string;
+      relativePath?: string;
       data: Uint8Array;
     }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:upload-remote-file', payload),

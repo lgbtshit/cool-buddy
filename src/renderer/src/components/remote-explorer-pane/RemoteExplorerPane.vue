@@ -15,11 +15,25 @@ import {
   FolderOpen
 } from 'lucide-vue-next';
 import { storeToRefs } from 'pinia';
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useAppCopy } from '../../composables/use-app-copy';
 import EmptyStatePanel from '../empty-state/EmptyStatePanel.vue';
 import { useSshConsoleStore } from '../../stores/ssh-console';
 import type { RemoteEntry } from '../../types/ssh-console';
+
+type DroppedRemoteFile = {
+  file: File;
+  relativePath: string;
+};
+
+type DroppedRemotePayload = {
+  directories: string[];
+  files: DroppedRemoteFile[];
+};
+
+type BrowserDataTransferItem = DataTransferItem & {
+  webkitGetAsEntry?: () => FileSystemEntry | null;
+};
 
 const store = useSshConsoleStore();
 const {
@@ -33,10 +47,12 @@ const {
 } = storeToRefs(store);
 const { t } = useAppCopy();
 
+const explorerPaneRef = ref<HTMLElement | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const dropActive = ref(false);
 const pathInput = ref('');
-const selectedEntryPath = ref('');
+const selectedEntryPaths = ref<string[]>([]);
+const selectionAnchorPath = ref('');
 const editingEntryPath = ref('');
 const editingName = ref('');
 const renamingEntryPath = ref('');
@@ -68,7 +84,8 @@ watch(
   () => remoteDirectory.value?.path,
   (path) => {
     pathInput.value = path ?? '';
-    selectedEntryPath.value = '';
+    selectedEntryPaths.value = [];
+    selectionAnchorPath.value = '';
     editingEntryPath.value = '';
     editingName.value = '';
     resetPathCompletionState();
@@ -86,14 +103,76 @@ function isSameMatchList(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function isEntrySelected(path: string) {
+  return selectedEntryPaths.value.includes(path);
+}
+
+function isEntryExclusivelySelected(path: string) {
+  return selectedEntryPaths.value.length === 1 && selectedEntryPaths.value[0] === path;
+}
+
+function clearEntrySelection() {
+  selectedEntryPaths.value = [];
+  selectionAnchorPath.value = '';
+}
+
+function selectSingleEntry(path: string) {
+  selectedEntryPaths.value = [path];
+  selectionAnchorPath.value = path;
+}
+
+function toggleEntrySelection(path: string) {
+  if (isEntrySelected(path)) {
+    selectedEntryPaths.value = selectedEntryPaths.value.filter((value) => value !== path);
+  } else {
+    selectedEntryPaths.value = [...selectedEntryPaths.value, path];
+  }
+
+  selectionAnchorPath.value = path;
+}
+
+function selectEntryRange(path: string) {
+  const anchorPath = selectionAnchorPath.value || path;
+  const startIndex = visibleEntries.value.findIndex((entry) => entry.path === anchorPath);
+  const endIndex = visibleEntries.value.findIndex((entry) => entry.path === path);
+
+  if (startIndex < 0 || endIndex < 0) {
+    selectSingleEntry(path);
+    return;
+  }
+
+  const [rangeStart, rangeEnd] =
+    startIndex <= endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
+  selectedEntryPaths.value = visibleEntries.value
+    .slice(rangeStart, rangeEnd + 1)
+    .map((entry) => entry.path);
+}
+
+function updateEntrySelection(entry: RemoteEntry, event?: MouseEvent) {
+  const useRangeSelection = Boolean(event?.shiftKey);
+  const useToggleSelection = Boolean(event && (event.ctrlKey || event.metaKey));
+
+  if (useRangeSelection) {
+    selectEntryRange(entry.path);
+    return;
+  }
+
+  if (useToggleSelection) {
+    toggleEntrySelection(entry.path);
+    return;
+  }
+
+  selectSingleEntry(entry.path);
+}
+
 async function openEntry(entry: RemoteEntry) {
-  selectedEntryPath.value = entry.path;
+  selectSingleEntry(entry.path);
   editingEntryPath.value = '';
   await store.openRemoteEntry(entry);
 }
 
 async function previewEntry(entry: RemoteEntry) {
-  selectedEntryPath.value = entry.path;
+  selectSingleEntry(entry.path);
   editingEntryPath.value = '';
   await store.previewRemoteEntry(entry);
 }
@@ -102,6 +181,165 @@ function triggerUploadPicker() {
   fileInput.value?.click();
 }
 
+/**
+ * 读取目录条目的全部直接子项，兼容分批返回的浏览器实现。
+ * @param directoryEntry 浏览器目录条目
+ * @return Promise<BrowserFileSystemEntry[]> 目录下的直接子项列表
+ */
+async function readDirectoryEntries(
+  directoryEntry: FileSystemDirectoryEntry
+): Promise<FileSystemEntry[]> {
+  const reader = directoryEntry.createReader();
+  const entries: FileSystemEntry[] = [];
+
+  while (true) {
+    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
+      reader.readEntries(resolve, reject);
+    });
+
+    if (batch.length === 0) {
+      break;
+    }
+
+    entries.push(...batch);
+  }
+
+  return entries;
+}
+
+/**
+ * 递归收集拖拽进来的文件系统条目，并记录目录路径和文件相对路径。
+ * @param entry 浏览器文件系统条目
+ * @param basePath 父级相对路径前缀
+ * @return Promise<DroppedRemotePayload> 目录列表与文件列表
+ */
+async function collectDroppedFiles(
+  entry: FileSystemEntry,
+  basePath = ''
+): Promise<DroppedRemotePayload> {
+  const nextPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+
+  if (entry.isFile) {
+    const fileEntry = entry as FileSystemFileEntry;
+    const file = await new Promise<File>((resolve, reject) => {
+      fileEntry.file(resolve, reject);
+    });
+
+    return {
+      directories: [],
+      files: [
+        {
+          file,
+          relativePath: nextPath
+        }
+      ]
+    };
+  }
+
+  if (!entry.isDirectory) {
+    return {
+      directories: [],
+      files: []
+    };
+  }
+
+  const directories = [nextPath];
+  const files: DroppedRemoteFile[] = [];
+  const directoryEntry = entry as FileSystemDirectoryEntry;
+  const children = await readDirectoryEntries(directoryEntry);
+
+  for (const child of children) {
+    const childPayload = await collectDroppedFiles(child, nextPath);
+    directories.push(...childPayload.directories);
+    files.push(...childPayload.files);
+  }
+
+  return {
+    directories,
+    files
+  };
+}
+
+/**
+ * 从拖拽事件中提取所有待上传文件，支持普通文件与文件夹混合拖入。
+ * @param event 拖拽放下事件
+ * @return Promise<DroppedRemotePayload> 目录列表与文件列表
+ */
+async function extractDroppedFiles(event: DragEvent): Promise<DroppedRemotePayload> {
+  const transferItems = Array.from(event.dataTransfer?.items ?? []) as BrowserDataTransferItem[];
+  const transferFiles = Array.from(event.dataTransfer?.files ?? []);
+  const droppedDirectories: string[] = [];
+  const droppedFiles: DroppedRemoteFile[] = [];
+
+  console.log('[remote-upload] extractDroppedFiles:start', {
+    itemCount: transferItems.length,
+    fileCount: transferFiles.length
+  });
+
+  if (transferItems.length > 0) {
+    for (const item of transferItems) {
+      const entry = item.webkitGetAsEntry?.() ?? null;
+
+      if (entry) {
+        console.log('[remote-upload] extractDroppedFiles:item-entry', {
+          kind: item.kind,
+          name: entry.name,
+          fullPath: entry.fullPath,
+          isFile: entry.isFile,
+          isDirectory: entry.isDirectory
+        });
+        const payload = await collectDroppedFiles(entry);
+        droppedDirectories.push(...payload.directories);
+        droppedFiles.push(...payload.files);
+        continue;
+      }
+
+      const file = item.getAsFile();
+      if (file) {
+        console.log('[remote-upload] extractDroppedFiles:item-file-fallback', {
+          kind: item.kind,
+          name: file.name,
+          size: file.size
+        });
+        droppedFiles.push({
+          file,
+          relativePath: file.name
+        });
+        continue;
+      }
+
+      console.warn('[remote-upload] extractDroppedFiles:item-unresolved', {
+        kind: item.kind,
+        type: item.type
+      });
+    }
+  } else {
+    for (const file of transferFiles) {
+      droppedFiles.push({
+        file,
+        relativePath: file.name
+      });
+    }
+  }
+
+  console.log('[remote-upload] extractDroppedFiles:done', {
+    directoryCount: droppedDirectories.length,
+    directories: droppedDirectories,
+    fileCount: droppedFiles.length,
+    files: droppedFiles.map((item) => item.relativePath)
+  });
+
+  return {
+    directories: droppedDirectories,
+    files: droppedFiles
+  };
+}
+
+/**
+ * 处理文件选择器选中的普通文件上传。
+ * @param event 文件输入事件
+ * @return Promise<void> 无返回
+ */
 async function handleFileSelection(event: Event) {
   const files = Array.from((event.target as HTMLInputElement).files ?? []);
   if (files.length > 0) {
@@ -111,12 +349,30 @@ async function handleFileSelection(event: Event) {
   (event.target as HTMLInputElement).value = '';
 }
 
+/**
+ * 处理拖拽上传，支持目录递归展开后再上传。
+ * @param event 拖拽放下事件
+ * @return Promise<void> 无返回
+ */
 async function handleDrop(event: DragEvent) {
   event.preventDefault();
   dropActive.value = false;
-  const files = Array.from(event.dataTransfer?.files ?? []);
-  if (files.length > 0) {
-    await store.uploadRemoteFiles(files);
+
+  try {
+    const payload = await extractDroppedFiles(event);
+    console.log('[remote-upload] handleDrop:resolved', {
+      directoryCount: payload.directories.length,
+      fileCount: payload.files.length
+    });
+    if (payload.files.length > 0 || payload.directories.length > 0) {
+      await store.uploadRemoteItems(payload);
+      return;
+    }
+
+    console.warn('No files or directories were found in the dropped items.');
+  } catch (error) {
+    console.error('Failed to handle dropped remote upload items.', error);
+    throw error;
   }
 }
 
@@ -127,7 +383,7 @@ async function handleCreateDirectory() {
 }
 
 async function handleRename(entry: RemoteEntry) {
-  selectedEntryPath.value = entry.path;
+  selectSingleEntry(entry.path);
   editingEntryPath.value = entry.path;
   editingName.value = entry.name;
   await nextTick();
@@ -208,16 +464,21 @@ function handleEntryClick(entry: RemoteEntry, event: MouseEvent) {
     editingName.value = '';
   }
 
-  selectedEntryPath.value = entry.path;
+  updateEntrySelection(entry, event);
 }
 
-async function handleEntryNameClick(entry: RemoteEntry) {
+async function handleEntryNameClick(entry: RemoteEntry, event: MouseEvent) {
   if (editingEntryPath.value === entry.path || renamingEntryPath.value === entry.path) {
     return;
   }
 
-  if (selectedEntryPath.value !== entry.path) {
-    selectedEntryPath.value = entry.path;
+  if (event.shiftKey || event.ctrlKey || event.metaKey) {
+    updateEntrySelection(entry, event);
+    return;
+  }
+
+  if (!isEntryExclusivelySelected(entry.path)) {
+    selectSingleEntry(entry.path);
     return;
   }
 
@@ -250,15 +511,37 @@ async function submitRename(entry: RemoteEntry) {
 
   try {
     await store.renameRemoteEntry(entry.path, nextName);
-    selectedEntryPath.value = '';
+    clearEntrySelection();
   } finally {
     renamingEntryPath.value = '';
   }
 }
+
+function handleDocumentPointerDown(event: PointerEvent) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  if (explorerPaneRef.value?.contains(target)) {
+    return;
+  }
+
+  clearEntrySelection();
+}
+
+onMounted(() => {
+  window.addEventListener('pointerdown', handleDocumentPointerDown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', handleDocumentPointerDown);
+});
 </script>
 
 <template>
   <div
+    ref="explorerPaneRef"
     class="explorer-pane remote-explorer-pane"
     :class="{ 'is-drop-active': dropActive }"
     @dragenter.prevent="dropActive = true"
@@ -349,7 +632,7 @@ async function submitRename(entry: RemoteEntry) {
             v-for="entry in visibleEntries"
             :key="entry.path"
             class="remote-entry-row"
-            :class="{ 'is-selected': selectedEntryPath === entry.path }"
+            :class="{ 'is-selected': isEntrySelected(entry.path) }"
             @click="handleEntryClick(entry, $event)"
             @dblclick="void openEntry(entry)"
           >
@@ -369,8 +652,8 @@ async function submitRename(entry: RemoteEntry) {
               <button
                 v-else
                 class="remote-entry-name"
-                :class="{ 'is-selected': selectedEntryPath === entry.path }"
-                @click.stop="void handleEntryNameClick(entry)"
+                :class="{ 'is-selected': isEntrySelected(entry.path) }"
+                @click.stop="void handleEntryNameClick(entry, $event)"
                 @dblclick.stop="void openEntry(entry)"
               >
                 {{ entry.name }}
@@ -515,9 +798,15 @@ async function submitRename(entry: RemoteEntry) {
   background: rgba(53, 52, 56, 0.34);
   color: rgba(228, 225, 230, 0.88);
   cursor: pointer;
+  outline: none;
 
   &:hover {
     background: rgba(53, 52, 56, 0.62);
+  }
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
   }
 
   &.is-selected {
@@ -548,6 +837,12 @@ async function submitRename(entry: RemoteEntry) {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+  outline: none;
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+  }
 
   &.is-selected:hover {
     color: var(--cyan-soft);

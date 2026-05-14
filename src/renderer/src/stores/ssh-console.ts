@@ -30,6 +30,16 @@ import type {
   TabMenuState
 } from '../types/ssh-console';
 
+type RemoteUploadItem = {
+  file: File;
+  relativePath?: string;
+};
+
+type RemoteDropPayload = {
+  directories: string[];
+  files: Array<File | RemoteUploadItem>;
+};
+
 const TAB_STORAGE_KEY = 'cool-buddy:open-tabs';
 const LOCALE_STORAGE_KEY = 'cool-buddy:locale';
 const AGENT_PROVIDER_DRAFTS_STORAGE_KEY = 'cool-buddy:agent-provider-drafts';
@@ -1377,45 +1387,208 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     }
   }
 
-  async function uploadRemoteFiles(files: File[]) {
+  /**
+   * 确保远程目录存在，并通过缓存避免重复创建同一路径。
+   * @param targetPath 需要确保存在的远程目录路径
+   * @param createdDirectories 已创建目录缓存
+   * @return Promise<void> 无返回
+   */
+  async function ensureRemoteDirectoryExists(
+    targetPath: string,
+    createdDirectories: Set<string>
+  ): Promise<void> {
+    if (!targetPath || targetPath === '.' || targetPath === '/') {
+      return;
+    }
+
+    const normalizedPath = targetPath.endsWith('/') ? targetPath.slice(0, -1) : targetPath;
+    if (createdDirectories.has(normalizedPath)) {
+      return;
+    }
+
+    const lastSlashIndex = normalizedPath.lastIndexOf('/');
+    const parentPath = lastSlashIndex <= 0 ? '/' : normalizedPath.slice(0, lastSlashIndex);
+
+    if (parentPath && parentPath !== normalizedPath) {
+      await ensureRemoteDirectoryExists(parentPath, createdDirectories);
+    }
+
+    try {
+      await window.api.ssh.createRemoteDirectory({ path: normalizedPath });
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      if (!message.includes('failure')) {
+        throw error;
+      }
+    }
+
+    createdDirectories.add(normalizedPath);
+  }
+
+  /**
+   * 上传文件列表；当文件带相对路径时，会自动补齐远程目录结构。
+   * @param files 待上传文件列表
+   * @return Promise<void> 无返回
+   */
+  async function uploadRemoteFiles(files: Array<File | RemoteUploadItem>) {
     if (!remoteDirectory.value || files.length === 0) return;
 
     explorerBusy.value = true;
     explorerError.value = '';
     try {
+      console.log('[remote-upload] uploadRemoteFiles:start', {
+        remoteDirectory: remoteDirectory.value.path,
+        fileCount: files.length
+      });
       const nextEntries = [...remoteDirectory.value.entries];
+      const createdDirectories = new Set<string>([
+        remoteDirectory.value.path.endsWith('/')
+          ? remoteDirectory.value.path.slice(0, -1)
+          : remoteDirectory.value.path
+      ]);
+      const normalizedFiles = files.map((item) => {
+        if (item instanceof File) {
+          return {
+            file: item,
+            relativePath: item.webkitRelativePath || item.name
+          };
+        }
 
-      for (const file of files) {
+        return {
+          file: item.file,
+          relativePath: item.relativePath?.trim() || item.file.webkitRelativePath || item.file.name
+        };
+      });
+
+      console.log('[remote-upload] uploadRemoteFiles:normalized', {
+        files: normalizedFiles.map((item) => ({
+          name: item.file.name,
+          size: item.file.size,
+          relativePath: item.relativePath
+        }))
+      });
+
+      for (const item of normalizedFiles) {
+        const file = item.file;
+        const relativePath = item.relativePath.replace(/\\/g, '/');
+        const lastSlashIndex = relativePath.lastIndexOf('/');
+        console.log('[remote-upload] uploadRemoteFiles:item', {
+          name: file.name,
+          size: file.size,
+          relativePath
+        });
+
+        if (lastSlashIndex > 0) {
+          const basePath = remoteDirectory.value.path.endsWith('/')
+            ? remoteDirectory.value.path.slice(0, -1)
+            : remoteDirectory.value.path;
+          const relativeDirectory = relativePath.slice(0, lastSlashIndex);
+          await ensureRemoteDirectoryExists(
+            `${basePath}/${relativeDirectory}`,
+            createdDirectories
+          );
+        }
+
         const data = new Uint8Array(await file.arrayBuffer());
         const result = await window.api.ssh.uploadRemoteFile({
           directory: remoteDirectory.value.path,
           name: file.name,
+          relativePath,
           data
         });
+        console.log('[remote-upload] uploadRemoteFiles:uploaded', {
+          relativePath,
+          remotePath: result.path
+        });
 
-        const nextEntry: RemoteEntry = {
-          name: file.name,
-          path: result.path,
-          kind: 'file',
-          size: file.size,
-          modifiedAt: Date.now()
-        };
-
-        const existingIndex = nextEntries.findIndex((entry) => entry.path === result.path);
-        if (existingIndex >= 0) {
-          nextEntries.splice(existingIndex, 1, nextEntry);
-        } else {
-          nextEntries.push(nextEntry);
+        if (lastSlashIndex <= 0) {
+          const nextEntry: RemoteEntry = {
+            name: file.name,
+            path: result.path,
+            kind: 'file',
+            size: file.size,
+            modifiedAt: Date.now()
+          };
+          const existingIndex = nextEntries.findIndex((entry) => entry.path === result.path);
+          if (existingIndex >= 0) {
+            nextEntries.splice(existingIndex, 1, nextEntry);
+          } else {
+            nextEntries.push(nextEntry);
+          }
         }
       }
 
       patchRemoteDirectoryEntries(() => nextEntries);
       void loadRemoteDirectory(remoteDirectory.value.path, { silent: true });
     } catch (error) {
+      console.error('[remote-upload] uploadRemoteFiles:failed', error);
       explorerError.value = error instanceof Error ? error.message : 'Failed to upload files.';
     } finally {
       explorerBusy.value = false;
     }
+  }
+
+  /**
+   * 处理拖拽上传的目录和文件，确保空目录也能在远端创建出来。
+   * @param payload 拖拽上传解析后的目录与文件信息
+   * @return Promise<void> 无返回
+   */
+  async function uploadRemoteItems(payload: RemoteDropPayload) {
+    if (!remoteDirectory.value) {
+      return;
+    }
+
+    const normalizedDirectories = Array.from(
+      new Set(
+        payload.directories
+          .map((directory) => directory.trim().replace(/\\/g, '/'))
+          .filter((directory) => Boolean(directory))
+          .sort((left, right) => left.length - right.length)
+      )
+    );
+
+    console.log('[remote-upload] uploadRemoteItems:start', {
+      remoteDirectory: remoteDirectory.value.path,
+      directories: normalizedDirectories,
+      fileCount: payload.files.length
+    });
+
+    if (normalizedDirectories.length > 0) {
+      explorerBusy.value = true;
+      explorerError.value = '';
+
+      try {
+        const basePath = remoteDirectory.value.path.endsWith('/')
+          ? remoteDirectory.value.path.slice(0, -1)
+          : remoteDirectory.value.path;
+        const createdDirectories = new Set<string>([basePath]);
+
+        for (const relativeDirectory of normalizedDirectories) {
+          console.log('[remote-upload] uploadRemoteItems:create-directory', {
+            relativeDirectory
+          });
+          await ensureRemoteDirectoryExists(
+            `${basePath}/${relativeDirectory}`,
+            createdDirectories
+          );
+        }
+      } catch (error) {
+        console.error('[remote-upload] uploadRemoteItems:create-directories-failed', error);
+        explorerError.value =
+          error instanceof Error ? error.message : 'Failed to create dropped directories.';
+        explorerBusy.value = false;
+        return;
+      } finally {
+        explorerBusy.value = false;
+      }
+    }
+
+    if (payload.files.length > 0) {
+      await uploadRemoteFiles(payload.files);
+      return;
+    }
+
+    void loadRemoteDirectory(remoteDirectory.value.path, { silent: true });
   }
 
   async function createRemoteDirectory(name: string) {
@@ -1803,6 +1976,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     updateAgentBaseUrl,
     updateAgentModelName,
     uploadRemoteFiles,
+    uploadRemoteItems,
     isConnected
   };
 });
