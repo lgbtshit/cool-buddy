@@ -11,6 +11,11 @@ export const router = createRouter({
       path: '/ssh-workbench',
       name: 'ssh-workbench',
       component: () => import('../views/ssh-workbench/SshWorkbenchView.vue')
+    },
+    {
+      path: '/log-pane-window',
+      name: 'log-pane-window',
+      component: () => import('../views/log-pane-window/LogPaneWindowView.vue')
     }
   ]
 });

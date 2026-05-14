@@ -15,6 +15,7 @@ import type {
   ConnectionForm,
   ConnectionState,
   LiveSystemMetrics,
+  LogTailStream,
   LogTailState,
   Locale,
   RemoteApp,
@@ -320,6 +321,21 @@ function createDefaultSessionDraft(
   };
 }
 
+function createLogTailStreamId(): string {
+  return `log-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createLogTailStream(path = ''): LogTailStream {
+  return {
+    id: createLogTailStreamId(),
+    path,
+    lines: [],
+    state: 'idle',
+    error: '',
+    statusMessage: ''
+  };
+}
+
 function createDefaultAgentProviderSettings(): AgentProviderSettings {
   const preset = AGENT_PROVIDER_PRESETS[0];
   return {
@@ -449,13 +465,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const remoteAppsLoading = ref(false);
   const remoteAppsError = ref('');
   const metricsLoading = ref(false);
-  const logTailPath = ref('');
   const logTailLineLimit = ref(50);
-  const logTailLines = ref<string[]>([]);
-  const logTailState = ref<LogTailState>('idle');
-  const logTailError = ref('');
-  const logTailStatusMessage = ref('');
-  let logTailRemainder = '';
+  const logTailStreams = ref<LogTailStream[]>([createLogTailStream()]);
+  const logTailRemainders = new Map<string, string>();
   let liveMetricsRefreshTimer: number | null = null;
   let fullMetricsRefreshTimer: number | null = null;
   let latencyRefreshTimer: number | null = null;
@@ -534,21 +546,39 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   );
 
   const isConnected = computed(() => status.value === 'connected');
-  const canStartLogTail = computed(() => {
-    return Boolean(
-      isConnected.value && logTailPath.value.trim() && logTailState.value !== 'running'
-    );
-  });
 
-  function resetLogTail(options?: { clearPath?: boolean }) {
-    logTailLines.value = [];
-    logTailState.value = 'idle';
-    logTailError.value = '';
-    logTailStatusMessage.value = '';
-    logTailRemainder = '';
+  function ensureLogTailStream(streamId: string): LogTailStream | null {
+    return logTailStreams.value.find((item) => item.id === streamId) ?? null;
+  }
+
+  function ensureAtLeastOneLogTailStream() {
+    if (logTailStreams.value.length > 0) {
+      return;
+    }
+
+    logTailStreams.value = [createLogTailStream()];
+  }
+
+  function resetLogTailStream(streamId: string, options?: { clearPath?: boolean }) {
+    const stream = ensureLogTailStream(streamId);
+    if (!stream) {
+      return;
+    }
+
+    stream.lines = [];
+    stream.state = 'idle';
+    stream.error = '';
+    stream.statusMessage = '';
+    logTailRemainders.delete(streamId);
 
     if (options?.clearPath) {
-      logTailPath.value = '';
+      stream.path = '';
+    }
+  }
+
+  function resetLogTails(options?: { clearPath?: boolean }) {
+    for (const stream of logTailStreams.value) {
+      resetLogTailStream(stream.id, options);
     }
   }
 
@@ -688,7 +718,6 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   }
 
   function openTabMenuAt(payload: TabMenuState) {
-    if (payload.sessionId !== activeSessionId.value) return;
     tabMenu.value = payload;
   }
 
@@ -715,12 +744,50 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       null;
 
     if (nextSession) {
-      selectSession(nextSession, { openTab: false });
-      status.value = 'idle';
-      statusMessage.value = t('ready');
+      await connectToSession(nextSession);
       return;
     }
 
+    resetActiveSession();
+  }
+
+  async function removeOtherTabs(sessionId: string) {
+    const remainingTabIds = openTabIds.value.filter((id) => id === sessionId);
+    const isClosingActiveTab = activeSessionId.value !== sessionId && openTabIds.value.includes(activeSessionId.value);
+
+    closeTabMenu();
+
+    if (isClosingActiveTab && status.value !== 'idle' && status.value !== 'disconnected') {
+      await disconnect();
+    }
+
+    openTabIds.value = remainingTabIds;
+    persistOpenTabs();
+
+    const nextSession =
+      openTabs.value.find((item) => item.id === sessionId) ??
+      sessions.value.find((item) => item.id === sessionId) ??
+      null;
+
+    if (nextSession) {
+      await connectToSession(nextSession);
+      return;
+    }
+
+    resetActiveSession();
+  }
+
+  async function removeAllTabs() {
+    const hadConnectedSession = status.value !== 'idle' && status.value !== 'disconnected';
+
+    closeTabMenu();
+
+    if (hadConnectedSession) {
+      await disconnect();
+    }
+
+    openTabIds.value = [];
+    persistOpenTabs();
     resetActiveSession();
   }
 
@@ -1181,9 +1248,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       persistOpenTabs();
     }
 
-    selectSession(nextSession, { openTab: false });
-    status.value = 'idle';
-    statusMessage.value = t('ready');
+    await connectToSession(nextSession);
   }
 
   /**
@@ -1237,75 +1302,145 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
   async function disconnect() {
     stopMetricsRefresh();
-    await stopLogTail();
+    await stopAllLogTails();
     await window.api.ssh.disconnect();
   }
 
-  function setLogTailPath(value: string) {
-    logTailPath.value = value;
+  function addLogTailStream() {
+    const stream = createLogTailStream();
+    logTailStreams.value = [...logTailStreams.value, stream];
+    return stream.id;
+  }
+
+  async function removeLogTailStream(streamId: string) {
+    const stream = ensureLogTailStream(streamId);
+    if (!stream) {
+      return;
+    }
+
+    if (stream.state === 'running') {
+      await window.api.ssh.stopLogTail(streamId);
+    }
+
+    logTailRemainders.delete(streamId);
+
+    if (logTailStreams.value.length === 1) {
+      logTailStreams.value = [createLogTailStream()];
+      return;
+    }
+
+    logTailStreams.value = logTailStreams.value.filter((item) => item.id !== streamId);
+    ensureAtLeastOneLogTailStream();
+  }
+
+  function setLogTailPath(streamId: string, value: string) {
+    const stream = ensureLogTailStream(streamId);
+    if (!stream) {
+      return;
+    }
+
+    stream.path = value;
   }
 
   function setLogTailLineLimit(value: number) {
     logTailLineLimit.value = Math.max(1, Math.min(500, Math.trunc(value || 50)));
-    logTailLines.value = logTailLines.value.slice(-logTailLineLimit.value);
+
+    for (const stream of logTailStreams.value) {
+      stream.lines = stream.lines.slice(-logTailLineLimit.value);
+    }
   }
 
-  function appendLogTailChunk(chunk: string) {
-    const normalizedChunk = chunk.replace(/\r\n/g, '\n');
-    const combined = `${logTailRemainder}${normalizedChunk}`;
+  function appendLogTailChunk(payload: { streamId: string; chunk: string }) {
+    const stream = ensureLogTailStream(payload.streamId);
+    if (!stream) {
+      return;
+    }
+
+    const normalizedChunk = payload.chunk.replace(/\r\n/g, '\n');
+    const combined = `${logTailRemainders.get(payload.streamId) ?? ''}${normalizedChunk}`;
     const parts = combined.split('\n');
-    logTailRemainder = parts.pop() ?? '';
+    logTailRemainders.set(payload.streamId, parts.pop() ?? '');
 
     if (!parts.length) {
       return;
     }
 
-    logTailLines.value = [...logTailLines.value, ...parts].slice(-logTailLineLimit.value);
+    stream.lines = [...stream.lines, ...parts].slice(-logTailLineLimit.value);
   }
 
-  function setLogTailStatus(payload: { status: LogTailState; path: string; message: string }) {
-    logTailState.value = payload.status;
-    logTailStatusMessage.value = payload.message.trim();
+  function setLogTailStatus(payload: {
+    streamId: string;
+    status: LogTailState;
+    path: string;
+    message: string;
+  }) {
+    const stream = ensureLogTailStream(payload.streamId);
+    if (!stream) {
+      return;
+    }
 
-    if (payload.path && payload.path !== logTailPath.value) {
-      logTailPath.value = payload.path;
+    stream.state = payload.status;
+    stream.statusMessage = payload.message.trim();
+
+    if (payload.path && payload.path !== stream.path) {
+      stream.path = payload.path;
     }
 
     if (payload.status === 'error') {
-      logTailError.value = payload.message.trim();
-      logTailLines.value = [];
-      logTailRemainder = '';
+      stream.error = payload.message.trim();
+      stream.lines = [];
+      logTailRemainders.delete(payload.streamId);
       return;
     }
 
     if (payload.status === 'idle') {
-      logTailError.value = '';
-      logTailLines.value = [];
-      logTailRemainder = '';
+      stream.error = '';
+      stream.lines = [];
+      logTailRemainders.delete(payload.streamId);
       return;
     }
 
-    logTailError.value = '';
+    stream.error = '';
   }
 
-  async function startLogTail() {
-    const path = logTailPath.value.trim();
+  async function startLogTail(streamId: string) {
+    const stream = ensureLogTailStream(streamId);
+    if (!stream) {
+      return;
+    }
+
+    const path = stream.path.trim();
     if (!path || !isConnected.value) return;
 
-    logTailLines.value = [];
-    logTailError.value = '';
-    logTailStatusMessage.value = '';
-    logTailRemainder = '';
-    await window.api.ssh.startLogTail({ path, lineCount: logTailLineLimit.value });
+    stream.lines = [];
+    stream.error = '';
+    stream.statusMessage = '';
+    logTailRemainders.delete(streamId);
+    await window.api.ssh.startLogTail({ streamId, path, lineCount: logTailLineLimit.value });
   }
 
-  async function stopLogTail() {
-    if (logTailState.value === 'idle' && !logTailLines.value.length && !logTailError.value) {
+  async function stopLogTail(streamId: string) {
+    const stream = ensureLogTailStream(streamId);
+    if (!stream) {
       return;
     }
 
-    await window.api.ssh.stopLogTail();
-    resetLogTail();
+    if (stream.state === 'idle' && !stream.lines.length && !stream.error) {
+      return;
+    }
+
+    await window.api.ssh.stopLogTail(streamId);
+    resetLogTailStream(streamId);
+  }
+
+  async function stopAllLogTails() {
+    for (const stream of logTailStreams.value) {
+      if (stream.state === 'running') {
+        await window.api.ssh.stopLogTail(stream.id);
+      } else {
+        resetLogTailStream(stream.id);
+      }
+    }
   }
 
   function patchRemoteDirectoryEntries(
@@ -1621,6 +1756,36 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     }
   }
 
+  async function createRemoteFile(name: string) {
+    if (!remoteDirectory.value || !name.trim()) return;
+
+    explorerBusy.value = true;
+    explorerError.value = '';
+    try {
+      const trimmedName = name.trim();
+      const basePath = remoteDirectory.value.path.replace(/\/$/, '');
+      const path = `${basePath}/${trimmedName}`;
+      await window.api.ssh.writeRemoteTextFile({ path, content: '' });
+
+      patchRemoteDirectoryEntries((entries) => [
+        ...entries.filter((entry) => entry.path !== path),
+        {
+          name: trimmedName,
+          path,
+          kind: 'file',
+          size: 0,
+          modifiedAt: Date.now()
+        }
+      ]);
+
+      void loadRemoteDirectory(remoteDirectory.value.path, { silent: true });
+    } catch (error) {
+      explorerError.value = error instanceof Error ? error.message : 'Failed to create file.';
+    } finally {
+      explorerBusy.value = false;
+    }
+  }
+
   async function renameRemoteEntry(oldPath: string, newName: string) {
     if (!remoteDirectory.value || !newName.trim()) return;
 
@@ -1831,7 +1996,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       remotePreview.value = null;
       systemMetrics.value = null;
       latencyMs.value = null;
-      resetLogTail();
+      resetLogTails();
       explorerBusy.value = false;
       explorerLoading.value = false;
       remoteAppsLoading.value = false;
@@ -1899,11 +2064,12 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     explorerLoading,
     filteredSessions,
     form,
+    createRemoteFile,
     createRemoteDirectory,
     deleteRemoteEntry,
     deleteSession,
+    addLogTailStream,
     appendLogTailChunk,
-    canStartLogTail,
     latencyLabel,
     latencyMs,
     loadHarmlessAgentState,
@@ -1917,12 +2083,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     loadSessions,
     loadRemoteDirectory,
     locale,
-    logTailError,
     logTailLineLimit,
-    logTailLines,
-    logTailPath,
-    logTailState,
-    logTailStatusMessage,
+    logTailStreams,
     metricsLoading,
     openRemoteEntry,
     previewRemoteEntry,
@@ -1932,12 +2094,15 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     openTabMenuAt,
     openTabs,
     pendingAgentApproval,
+    removeAllTabs,
+    removeOtherTabs,
     removeTab,
     remoteApps,
     remoteAppsError,
     remoteAppsLoading,
     remoteDirectory,
     remotePreview,
+    removeLogTailStream,
     resolveHarmlessAgentApproval,
     renameRemoteEntry,
     runHarmlessAgentPrompt,
@@ -1969,6 +2134,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     t,
     tabMenu,
     startLogTail,
+    stopAllLogTails,
     stopLogTail,
     toggleHiddenFiles,
     setLocale,

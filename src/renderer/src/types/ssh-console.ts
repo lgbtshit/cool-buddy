@@ -209,3 +209,12 @@ export type RemoteApp = {
 };
 
 export type LogTailState = 'idle' | 'running' | 'error';
+
+export type LogTailStream = {
+  id: string;
+  path: string;
+  lines: string[];
+  state: LogTailState;
+  error: string;
+  statusMessage: string;
+};

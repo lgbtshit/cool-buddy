@@ -35,6 +35,7 @@ defineProps<{
   background:
     linear-gradient(180deg, rgba(18, 28, 30, 0.36), rgba(14, 14, 17, 0.22)),
     rgba(255, 255, 255, 0.01);
+  width: 100%;
 
   &.compact {
     padding: 12px 10px;

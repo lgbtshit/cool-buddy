@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
-import { closeDatabase, getDatabase } from './data/session-store';
+import { closeDatabase } from './data/session-store';
 import { registerAppIpc } from './ipc/register-app-ipc';
 import { registerAgentSettingsIpc } from './ipc/register-agent-settings-ipc';
 import { registerHarmlessAgentIpc } from './ipc/register-harmless-agent-ipc';
@@ -17,7 +17,6 @@ app
   .then(() => {
     electronApp.setAppUserModelId('com.electron');
     setAppLocale(resolveLocale(app.getLocale()));
-    getDatabase();
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window);

@@ -25,12 +25,8 @@ const {
   latencyLabel,
   isConnected,
   remoteDirectory,
-  logTailError,
   logTailLineLimit,
-  logTailLines,
-  logTailPath,
-  logTailState,
-  canStartLogTail
+  logTailStreams
 } = storeToRefs(store);
 const { t } = useAppCopy();
 
@@ -42,6 +38,8 @@ const logAlertOpen = ref(false);
 const logSettingsDraft = ref(50);
 const logSettingsOpen = ref(false);
 const pendingPasteContent = ref('');
+const poppedOutStreamIds = ref<string[]>([]);
+const popoutPlaceholderByStreamId = ref<Record<string, string>>({});
 
 const terminal = new Terminal({
   cursorBlink: true,
@@ -83,10 +81,15 @@ let removeStatusListener: (() => void) | null = null;
 let removeAgentEventListener: (() => void) | null = null;
 let removeTerminalInput: { dispose: () => void } | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let terminalResizeFrame: number | null = null;
+const popupMonitorTimers = new Map<string, number>();
 
 const terminalSessionName = computed(() => activeSession.value?.name ?? '--');
 const isMacOS = navigator.userAgent.toLowerCase().includes('mac');
 const hasActiveSession = computed(() => Boolean(activeSession.value));
+const visibleLogTailStreams = computed(() =>
+  logTailStreams.value.filter((stream) => !poppedOutStreamIds.value.includes(stream.id))
+);
 const footerSessionMeta = computed(() => {
   if (!activeSession.value) return '';
   return `${activeSession.value.host}:${activeSession.value.port} | ${latencyLabel.value}`;
@@ -141,9 +144,106 @@ function closeLogAlertModal() {
   logAlertMessage.value = '';
 }
 
-async function handleStartLogTail() {
+function markStreamPoppedOut(streamId: string, isPoppedOut: boolean) {
+  if (isPoppedOut) {
+    if (!poppedOutStreamIds.value.includes(streamId)) {
+      poppedOutStreamIds.value = [...poppedOutStreamIds.value, streamId];
+    }
+    return;
+  }
+
+  poppedOutStreamIds.value = poppedOutStreamIds.value.filter((id) => id !== streamId);
+}
+
+function isUnusedPlaceholderStream(streamId: string) {
+  const stream = logTailStreams.value.find((item) => item.id === streamId);
+  if (!stream) {
+    return false;
+  }
+
+  return (
+    !stream.path.trim() &&
+    stream.state === 'idle' &&
+    stream.lines.length === 0 &&
+    !stream.error &&
+    !stream.statusMessage
+  );
+}
+
+async function restorePoppedOutStream(streamId: string) {
+  if (!poppedOutStreamIds.value.includes(streamId)) {
+    return;
+  }
+
+  markStreamPoppedOut(streamId, false);
+
+  const placeholderId = popoutPlaceholderByStreamId.value[streamId];
+  if (placeholderId && isUnusedPlaceholderStream(placeholderId)) {
+    await store.removeLogTailStream(placeholderId);
+  }
+
+  if (placeholderId) {
+    const nextMap = { ...popoutPlaceholderByStreamId.value };
+    delete nextMap[streamId];
+    popoutPlaceholderByStreamId.value = nextMap;
+  }
+
+  const timerId = popupMonitorTimers.get(streamId);
+  if (timerId !== undefined) {
+    window.clearInterval(timerId);
+    popupMonitorTimers.delete(streamId);
+  }
+}
+
+function openLogPaneWindow(streamId: string) {
+  const stream = logTailStreams.value.find((item) => item.id === streamId);
+  if (!stream) {
+    return;
+  }
+
+  const popupUrl = new URL(window.location.href);
+  const params = new URLSearchParams();
+  params.set('path', stream.path);
+  params.set('lineLimit', String(logTailLineLimit.value));
+
+  if (remoteDirectory.value?.path) {
+    params.set('basePath', remoteDirectory.value.path);
+  }
+
+  popupUrl.hash = `#/log-pane-window?${params.toString()}`;
+  const popup = window.open(popupUrl.toString(), '_blank', 'popup=yes');
+  if (!popup) {
+    return;
+  }
+
+  if (visibleLogTailStreams.value.length === 1) {
+    const placeholderId = store.addLogTailStream();
+    popoutPlaceholderByStreamId.value = {
+      ...popoutPlaceholderByStreamId.value,
+      [streamId]: placeholderId
+    };
+  }
+
+  markStreamPoppedOut(streamId, true);
+
+  const cleanup = () => {
+    void restorePoppedOutStream(streamId);
+  };
+  popup.addEventListener('beforeunload', cleanup, { once: true });
+
+  const timerId = window.setInterval(() => {
+    if (!popup.closed) {
+      return;
+    }
+
+    cleanup();
+  }, 500);
+  popupMonitorTimers.set(streamId, timerId);
+}
+
+async function handleStartLogTail(streamId: string) {
   try {
-    await store.startLogTail();
+    await store.startLogTail(streamId);
   } catch (error) {
     const message = error instanceof Error ? error.message.trim() : t('logInvalidFileMessage');
     logAlertMessage.value = message || t('logInvalidFileMessage');
@@ -173,9 +273,37 @@ function getTerminalHost() {
 
 function syncTerminalSize() {
   const terminalHost = getTerminalHost();
-  if (!terminalHost) return;
-  fitAddon.fit();
-  window.api.ssh.resize({ cols: terminal.cols, rows: terminal.rows });
+  if (
+    !terminalHost ||
+    !terminal.element ||
+    !terminalHost.isConnected ||
+    terminalHost.clientWidth <= 0 ||
+    terminalHost.clientHeight <= 0
+  ) {
+    return;
+  }
+
+  try {
+    fitAddon.fit();
+  } catch (error) {
+    console.warn('Terminal fit skipped because dimensions are not ready yet.', error);
+    return;
+  }
+
+  if (terminal.cols > 0 && terminal.rows > 0) {
+    window.api.ssh.resize({ cols: terminal.cols, rows: terminal.rows });
+  }
+}
+
+function scheduleTerminalSizeSync() {
+  if (terminalResizeFrame !== null) {
+    cancelAnimationFrame(terminalResizeFrame);
+  }
+
+  terminalResizeFrame = window.requestAnimationFrame(() => {
+    terminalResizeFrame = null;
+    syncTerminalSize();
+  });
 }
 
 function handleGlobalClick() {
@@ -187,7 +315,7 @@ onMounted(() => {
   if (!terminalHost) return;
 
   terminal.open(terminalHost);
-  fitAddon.fit();
+  scheduleTerminalSizeSync();
   terminal.focus();
   terminal.attachCustomKeyEventHandler((event) => {
     const modifierPressed = isMacOS ? event.metaKey : event.ctrlKey;
@@ -222,8 +350,8 @@ onMounted(() => {
     terminal.write(data);
   });
 
-  removeLogDataListener = window.api.ssh.onLogData((data) => {
-    store.appendLogTailChunk(data);
+  removeLogDataListener = window.api.ssh.onLogData((payload) => {
+    store.appendLogTailChunk(payload);
   });
 
   removeLogStatusListener = window.api.ssh.onLogStatus((payload) => {
@@ -247,7 +375,7 @@ onMounted(() => {
     }
 
     if (payload.status === 'connected') {
-      syncTerminalSize();
+      scheduleTerminalSizeSync();
       terminal.focus();
     }
   });
@@ -257,7 +385,7 @@ onMounted(() => {
   });
 
   resizeObserver = new ResizeObserver(() => {
-    syncTerminalSize();
+    scheduleTerminalSizeSync();
   });
   resizeObserver.observe(terminalHost);
 
@@ -273,6 +401,14 @@ onBeforeUnmount(() => {
   removeAgentEventListener?.();
   removeTerminalInput?.dispose();
   resizeObserver?.disconnect();
+  for (const timerId of popupMonitorTimers.values()) {
+    window.clearInterval(timerId);
+  }
+  popupMonitorTimers.clear();
+  if (terminalResizeFrame !== null) {
+    cancelAnimationFrame(terminalResizeFrame);
+    terminalResizeFrame = null;
+  }
   window.removeEventListener('click', handleGlobalClick);
   terminal.dispose();
 });
@@ -297,18 +433,15 @@ onBeforeUnmount(() => {
           />
 
           <LogPanel
-            :can-start="canStartLogTail"
             :completion-base-path="remoteDirectory?.path"
             :disconnected-hint="t('logDisconnectedHint')"
             :disconnected-title="t('logDisconnectedTitle')"
+            :log-add-stream-label="t('logAddStream')"
+            :log-close-stream-label="t('logCloseStream')"
+            :log-popout-label="t('logPopout')"
             :empty-hint="t('logEmptyHint')"
             :empty-title="t('logEmptyTitle')"
             :is-connected="isConnected"
-            :is-running="logTailState === 'running'"
-            :log-error="logTailError"
-            :log-line-limit="logTailLineLimit"
-            :log-lines="logTailLines"
-            :log-path="logTailPath"
             :log-settings-label="t('logSettings')"
             :log-title="t('logTitle')"
             :path-placeholder="t('logPathPlaceholder')"
@@ -316,11 +449,16 @@ onBeforeUnmount(() => {
             :start-label="t('logStart')"
             :stop-label="t('logStop')"
             :stopped-label="t('logStopped')"
+            :stream-label="t('logStreamLabel')"
+            :streams="visibleLogTailStreams"
             :waiting-events="t('waitingEvents')"
+            @add-stream="store.addLogTailStream()"
             @open-settings="openLogSettingsModal"
-            @path-input="store.setLogTailPath"
-            @start="void handleStartLogTail()"
-            @stop="void store.stopLogTail()"
+            @path-input="store.setLogTailPath($event.streamId, $event.value)"
+            @popout-stream="openLogPaneWindow($event)"
+            @remove-stream="void store.removeLogTailStream($event)"
+            @start="void handleStartLogTail($event)"
+            @stop="void store.stopLogTail($event)"
           />
         </section>
 
@@ -332,7 +470,6 @@ onBeforeUnmount(() => {
       <span v-if="hasActiveSession">{{ footerSessionMeta }}</span>
       <div class="footer-actions">
         <button @click="keybindingsOpen = true">{{ t('keyBindings') }}</button>
-        <button>{{ t('quickActions') }}</button>
         <button @click="void store.openAgentSettingsModal()">{{ t('terminalSettings') }}</button>
       </div>
     </footer>

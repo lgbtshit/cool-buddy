@@ -27,8 +27,14 @@ type SshCommandBatchPayload = {
 };
 
 type SshLogTailPayload = {
+  streamId: string;
   path: string;
   lineCount: number;
+};
+
+type SshLogDataPayload = {
+  streamId: string;
+  chunk: string;
 };
 
 type SshStatusPayload = {
@@ -37,6 +43,7 @@ type SshStatusPayload = {
 };
 
 type SshLogStatusPayload = {
+  streamId: string;
   status: 'idle' | 'running' | 'error';
   path: string;
   message: string;
@@ -266,7 +273,8 @@ type AppApi = {
     pickPrivateKey: () => Promise<{ canceled: boolean; path: string }>;
     executeCommandBatch: (payload: SshCommandBatchPayload) => Promise<{ ok: true }>;
     startLogTail: (payload: SshLogTailPayload) => Promise<{ ok: true }>;
-    stopLogTail: () => Promise<{ ok: true }>;
+    stopLogTail: (streamId: string) => Promise<{ ok: true }>;
+    getStatusSnapshot: () => Promise<SshStatusPayload>;
     disconnect: () => Promise<{ ok: true }>;
     listRemote: (payload?: { path?: string; showHidden?: boolean }) => Promise<RemoteDirectory>;
     completeRemotePath: (
@@ -274,6 +282,10 @@ type AppApi = {
     ) => Promise<RemotePathCompletionResult>;
     readRemoteFile: (payload: { path: string }) => Promise<{ path: string; content: string }>;
     openRemoteFile: (payload: { path: string }) => Promise<{ path: string; localPath: string }>;
+    writeRemoteTextFile: (payload: {
+      path: string;
+      content: string;
+    }) => Promise<{ ok: true; path: string }>;
     uploadRemoteFile: (payload: {
       directory: string;
       name: string;
@@ -297,7 +309,7 @@ type AppApi = {
     resize: (size: { cols: number; rows: number }) => void;
     onData: (listener: (data: string) => void) => () => void;
     onStatus: (listener: (payload: SshStatusPayload) => void) => () => void;
-    onLogData: (listener: (data: string) => void) => () => void;
+    onLogData: (listener: (payload: SshLogDataPayload) => void) => () => void;
     onLogStatus: (listener: (payload: SshLogStatusPayload) => void) => () => void;
   };
 };

@@ -24,8 +24,14 @@ export type SshCommandBatchPayload = {
 };
 
 export type SshLogTailPayload = {
+  streamId: string;
   path: string;
   lineCount: number;
+};
+
+export type SshLogDataPayload = {
+  streamId: string;
+  chunk: string;
 };
 
 export type SshStatusPayload = {
@@ -34,6 +40,7 @@ export type SshStatusPayload = {
 };
 
 export type SshLogStatusPayload = {
+  streamId: string;
   status: 'idle' | 'running' | 'error';
   path: string;
   message: string;

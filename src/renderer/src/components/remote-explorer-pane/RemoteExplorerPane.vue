@@ -55,7 +55,18 @@ const selectedEntryPaths = ref<string[]>([]);
 const selectionAnchorPath = ref('');
 const editingEntryPath = ref('');
 const editingName = ref('');
+const createEntryDialogOpen = ref(false);
+const createEntryKind = ref<'directory' | 'file'>('directory');
+const createEntryName = ref('');
+const deleteDialogOpen = ref(false);
+const deleteTargetPaths = ref<string[]>([]);
+const deleteTargetLabel = ref('');
+const contextMenuOpen = ref(false);
+const contextMenuX = ref(0);
+const contextMenuY = ref(0);
 const renamingEntryPath = ref('');
+const createEntryInput = ref<InputInstance | null>(null);
+const contextMenuRef = ref<HTMLElement | null>(null);
 const renameInput = ref<InputInstance | null>(null);
 const pathCompletionMatches = ref<string[]>([]);
 const pathCompletionIndex = ref(-1);
@@ -116,6 +127,67 @@ function clearEntrySelection() {
   selectionAnchorPath.value = '';
 }
 
+function openCreateEntryDialog(kind: 'directory' | 'file' = 'directory') {
+  closeContextMenu();
+  createEntryKind.value = kind;
+  createEntryName.value = '';
+  createEntryDialogOpen.value = true;
+  nextTick(() => {
+    createEntryInput.value?.focus();
+  });
+}
+
+function closeCreateEntryDialog() {
+  createEntryDialogOpen.value = false;
+  createEntryName.value = '';
+}
+
+function openDeleteDialog(paths: string[], label: string) {
+  if (!paths.length) {
+    return;
+  }
+
+  closeContextMenu();
+  deleteTargetPaths.value = [...paths];
+  deleteTargetLabel.value = label;
+  deleteDialogOpen.value = true;
+}
+
+function closeDeleteDialog() {
+  deleteDialogOpen.value = false;
+  deleteTargetPaths.value = [];
+  deleteTargetLabel.value = '';
+}
+
+function closeContextMenu() {
+  contextMenuOpen.value = false;
+}
+
+function openContextMenu(event: MouseEvent) {
+  event.preventDefault();
+  closeContextMenu();
+  clearEntrySelection();
+  contextMenuX.value = event.clientX;
+  contextMenuY.value = event.clientY;
+  contextMenuOpen.value = true;
+
+  nextTick(() => {
+    const menu = contextMenuRef.value;
+    if (!menu) {
+      return;
+    }
+
+    const rect = menu.getBoundingClientRect();
+    const padding = 12;
+    if (rect.right > window.innerWidth - padding) {
+      contextMenuX.value = Math.max(padding, window.innerWidth - rect.width - padding);
+    }
+    if (rect.bottom > window.innerHeight - padding) {
+      contextMenuY.value = Math.max(padding, window.innerHeight - rect.height - padding);
+    }
+  });
+}
+
 function selectSingleEntry(path: string) {
   selectedEntryPaths.value = [path];
   selectionAnchorPath.value = path;
@@ -169,12 +241,6 @@ async function openEntry(entry: RemoteEntry) {
   selectSingleEntry(entry.path);
   editingEntryPath.value = '';
   await store.openRemoteEntry(entry);
-}
-
-async function previewEntry(entry: RemoteEntry) {
-  selectSingleEntry(entry.path);
-  editingEntryPath.value = '';
-  await store.previewRemoteEntry(entry);
 }
 
 function triggerUploadPicker() {
@@ -377,9 +443,24 @@ async function handleDrop(event: DragEvent) {
 }
 
 async function handleCreateDirectory() {
-  const name = window.prompt(t('newFolderPrompt'));
-  if (!name) return;
-  await store.createRemoteDirectory(name);
+  openCreateEntryDialog('directory');
+}
+
+async function submitCreateEntry() {
+  const nextName = createEntryName.value.trim();
+  if (!nextName) {
+    return;
+  }
+
+  if (createEntryKind.value === 'directory') {
+    await store.createRemoteDirectory(nextName);
+  } else {
+    await store.createRemoteFile(nextName);
+  }
+
+  if (!explorerError.value) {
+    closeCreateEntryDialog();
+  }
 }
 
 async function handleRename(entry: RemoteEntry) {
@@ -390,7 +471,8 @@ async function handleRename(entry: RemoteEntry) {
   const input = renameInput.value;
   if (!input) return;
 
-  input.focus();
+  input.focus?.();
+  input.input?.focus();
   const extensionIndex =
     entry.kind === 'file' && entry.name.includes('.') ? entry.name.lastIndexOf('.') : -1;
   const selectionEnd = extensionIndex > 0 ? extensionIndex : entry.name.length;
@@ -398,9 +480,21 @@ async function handleRename(entry: RemoteEntry) {
 }
 
 async function handleDelete(entry: RemoteEntry) {
-  const confirmed = window.confirm(`${t('deleteConfirm')} ${entry.name}?`);
-  if (!confirmed) return;
-  await store.deleteRemoteEntry(entry.path);
+  openDeleteDialog([entry.path], entry.name);
+}
+
+async function submitDeleteEntries() {
+  const targetPaths = [...deleteTargetPaths.value];
+  if (!targetPaths.length) {
+    return;
+  }
+
+  for (const path of targetPaths) {
+    await store.deleteRemoteEntry(path);
+  }
+
+  clearEntrySelection();
+  closeDeleteDialog();
 }
 
 async function submitPath() {
@@ -523,6 +617,10 @@ function handleDocumentPointerDown(event: PointerEvent) {
     return;
   }
 
+  if (contextMenuOpen.value && !target.closest('.remote-context-menu')) {
+    closeContextMenu();
+  }
+
   if (explorerPaneRef.value?.contains(target)) {
     return;
   }
@@ -530,12 +628,46 @@ function handleDocumentPointerDown(event: PointerEvent) {
   clearEntrySelection();
 }
 
+function handleWindowKeyDown(event: KeyboardEvent) {
+  if (event.key !== 'Delete') {
+    return;
+  }
+
+  const target = event.target;
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  ) {
+    return;
+  }
+
+  if (editingEntryPath.value || createEntryDialogOpen.value || deleteDialogOpen.value) {
+    return;
+  }
+
+  if (!selectedEntryPaths.value.length || explorerBusy.value) {
+    return;
+  }
+
+  event.preventDefault();
+  const label =
+    selectedEntryPaths.value.length === 1
+      ? visibleEntries.value.find((entry) => entry.path === selectedEntryPaths.value[0])?.name ??
+        selectedEntryPaths.value[0]
+      : `已选中的 ${selectedEntryPaths.value.length} 个项目`;
+  openDeleteDialog(selectedEntryPaths.value, label);
+}
+
 onMounted(() => {
   window.addEventListener('pointerdown', handleDocumentPointerDown);
+  window.addEventListener('keydown', handleWindowKeyDown);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', handleDocumentPointerDown);
+  window.removeEventListener('keydown', handleWindowKeyDown);
 });
 </script>
 
@@ -622,7 +754,7 @@ onBeforeUnmount(() => {
         </form>
       </div>
 
-      <div class="remote-explorer-scroll">
+      <div class="remote-explorer-scroll" @contextmenu="openContextMenu">
         <div v-if="explorerError" class="remote-explorer-error">{{ explorerError }}</div>
 
         <div v-if="explorerLoading" class="empty-state compact">{{ t('loadingRemoteFiles') }}</div>
@@ -661,14 +793,6 @@ onBeforeUnmount(() => {
             </div>
             <div class="remote-entry-actions">
               <button
-                v-if="entry.kind !== 'directory'"
-                class="mini-icon-btn"
-                :disabled="explorerBusy"
-                @click.stop="void previewEntry(entry)"
-              >
-                <Eye :size="13" />
-              </button>
-              <button
                 class="mini-icon-btn"
                 :disabled="explorerBusy"
                 @click.stop="void handleRename(entry)"
@@ -703,6 +827,116 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <div
+      v-if="contextMenuOpen"
+      ref="contextMenuRef"
+      class="remote-context-menu"
+      :style="{ left: `${contextMenuX}px`, top: `${contextMenuY}px` }"
+    >
+      <button class="remote-context-menu-item" @click="openCreateEntryDialog('file')">
+        <FileText :size="14" />
+        <span>新建文件</span>
+      </button>
+      <button class="remote-context-menu-item" @click="openCreateEntryDialog('directory')">
+        <FolderOpen :size="14" />
+        <span>新建文件夹</span>
+      </button>
+    </div>
+
+    <div
+      v-if="createEntryDialogOpen"
+      class="remote-create-overlay"
+      @click.self="closeCreateEntryDialog()"
+    >
+      <section class="remote-create-dialog" role="dialog" aria-modal="true" aria-label="新建项目">
+        <div class="remote-create-header">
+          <span class="remote-create-eyebrow">REMOTE EXPLORER</span>
+          <h3 class="remote-create-title">
+            {{ createEntryKind === 'directory' ? '新建文件夹' : '新建文件' }}
+          </h3>
+          <p class="remote-create-copy">在当前目录中创建一个新的{{ createEntryKind === 'directory' ? '文件夹' : '文件' }}。</p>
+        </div>
+
+        <div class="remote-create-kind-switch" role="tablist" aria-label="Create entry type">
+          <button
+            type="button"
+            class="remote-create-kind-btn"
+            :class="{ 'is-active': createEntryKind === 'directory' }"
+            @click="createEntryKind = 'directory'"
+          >
+            <FolderOpen :size="14" />
+            <span>文件夹</span>
+          </button>
+          <button
+            type="button"
+            class="remote-create-kind-btn"
+            :class="{ 'is-active': createEntryKind === 'file' }"
+            @click="createEntryKind = 'file'"
+          >
+            <FileText :size="14" />
+            <span>文件</span>
+          </button>
+        </div>
+
+        <form class="remote-create-form" @submit.prevent="void submitCreateEntry()">
+          <label class="remote-create-label" for="remote-create-name">名称</label>
+          <ElInput
+            id="remote-create-name"
+            ref="createEntryInput"
+            v-model="createEntryName"
+            class="remote-create-input"
+            :placeholder="createEntryKind === 'directory' ? '例如 assets' : '例如 README.md'"
+            @keydown.esc.prevent="closeCreateEntryDialog()"
+          />
+          <div class="remote-create-actions">
+            <button type="button" class="remote-create-secondary" @click="closeCreateEntryDialog()">
+              取消
+            </button>
+            <button
+              type="submit"
+              class="remote-create-primary"
+              :disabled="!createEntryName.trim() || explorerBusy"
+            >
+              {{ createEntryKind === 'directory' ? '创建文件夹' : '创建文件' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div
+      v-if="deleteDialogOpen"
+      class="remote-create-overlay"
+      @click.self="closeDeleteDialog()"
+    >
+      <section class="remote-create-dialog remote-delete-dialog" role="dialog" aria-modal="true">
+        <div class="remote-create-header">
+          <span class="remote-create-eyebrow">REMOTE EXPLORER</span>
+          <h3 class="remote-create-title">确认删除</h3>
+          <p class="remote-create-copy">
+            {{ deleteTargetPaths.length > 1 ? '将删除这些项目：' : '将删除这个项目：' }}
+            <span class="remote-delete-label">{{ deleteTargetLabel }}</span>
+          </p>
+        </div>
+
+        <div class="remote-create-actions remote-delete-actions">
+          <button type="button" class="remote-create-secondary" @click="closeDeleteDialog()">
+            取消
+          </button>
+          <button
+            type="button"
+            class="remote-create-primary remote-delete-primary"
+            :disabled="explorerBusy"
+            @click="void submitDeleteEntries()"
+          >
+            {{ deleteTargetPaths.length > 1 ? '删除所选项目' : '删除' }}
+          </button>
+        </div>
+      </section>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped lang="scss">
@@ -739,6 +973,171 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
+.remote-create-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(5, 7, 9, 0.76);
+  backdrop-filter: blur(10px);
+}
+
+.remote-create-dialog {
+  width: min(100%, 380px);
+  padding: 18px;
+  border: 1px solid rgba(84, 100, 108, 0.28);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(20, 25, 28, 0.98), rgba(15, 18, 21, 0.98));
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.remote-create-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.remote-create-eyebrow {
+  color: rgba(99, 247, 255, 0.78);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.remote-create-title {
+  margin: 0;
+  color: rgba(241, 245, 248, 0.96);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.remote-create-copy {
+  margin: 0;
+  color: rgba(176, 186, 194, 0.82);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.remote-create-kind-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.remote-create-kind-btn {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid rgba(70, 80, 88, 0.64);
+  border-radius: 6px;
+  background: rgba(25, 30, 34, 0.88);
+  color: rgba(197, 204, 210, 0.86);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+
+  &:hover {
+    border-color: rgba(99, 247, 255, 0.26);
+    background: rgba(33, 39, 43, 0.96);
+    color: rgba(235, 241, 246, 0.96);
+  }
+
+  &.is-active {
+    border-color: rgba(99, 247, 255, 0.54);
+    background: rgba(8, 39, 44, 0.96);
+    color: rgba(235, 249, 250, 0.98);
+    box-shadow: inset 0 0 0 1px rgba(99, 247, 255, 0.12);
+  }
+}
+
+.remote-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.remote-create-label {
+  color: rgba(191, 199, 205, 0.92);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.remote-create-input {
+  :deep(.el-input__wrapper) {
+    min-height: 38px;
+    border-radius: 6px;
+    background: rgba(10, 13, 15, 0.92);
+    box-shadow: inset 0 0 0 1px rgba(73, 85, 92, 0.7);
+  }
+
+  :deep(.el-input__wrapper.is-focus) {
+    box-shadow: inset 0 0 0 1px rgba(99, 247, 255, 0.52);
+  }
+
+  :deep(.el-input__inner) {
+    color: rgba(237, 242, 245, 0.96);
+    font-size: 13px;
+  }
+}
+
+.remote-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.remote-create-secondary,
+.remote-create-primary {
+  min-width: 92px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+.remote-create-secondary {
+  border: 1px solid rgba(76, 85, 92, 0.78);
+  background: rgba(23, 28, 31, 0.9);
+  color: rgba(210, 216, 221, 0.92);
+}
+
+.remote-create-primary {
+  border: 1px solid rgba(71, 188, 194, 0.74);
+  background: linear-gradient(180deg, rgba(18, 121, 127, 0.96), rgba(12, 91, 96, 0.96));
+  color: rgba(240, 251, 252, 0.98);
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
 .remote-explorer-scroll {
   display: flex;
   min-height: 0;
@@ -747,6 +1146,62 @@ onBeforeUnmount(() => {
   gap: 10px;
   overflow: auto;
   padding-top: 10px;
+}
+
+.remote-context-menu {
+  position: fixed;
+  z-index: 1990;
+  display: flex;
+  min-width: 154px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(74, 88, 95, 0.56);
+  border-radius: 8px;
+  background: rgba(15, 19, 22, 0.98);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.remote-context-menu-item {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(224, 230, 234, 0.92);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(0, 220, 229, 0.1);
+    color: rgba(241, 248, 250, 0.98);
+  }
+}
+
+.remote-delete-dialog {
+  width: min(100%, 360px);
+}
+
+.remote-delete-label {
+  display: inline-block;
+  margin-top: 4px;
+  color: rgba(236, 240, 244, 0.96);
+  word-break: break-all;
+}
+
+.remote-delete-actions {
+  padding-top: 2px;
+}
+
+.remote-delete-primary {
+  border-color: rgba(202, 95, 95, 0.74);
+  background: linear-gradient(180deg, rgba(144, 49, 49, 0.96), rgba(116, 37, 37, 0.96));
 }
 
 .remote-path-bar {

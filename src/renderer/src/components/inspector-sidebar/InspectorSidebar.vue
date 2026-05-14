@@ -90,6 +90,16 @@ const hasAgentMessages = computed(() => visibleAgentMessages.value.length > 0);
 const showAgentThinking = computed(() =>
   Boolean(agentRuntime.value.running && thinkingMessage.value)
 );
+const agentEmptyTitle = computed(() =>
+  isConnected.value ? t('agentEmptyTitle') : t('agentDisconnectedTitle')
+);
+const agentEmptyDescription = computed(() => {
+  if (agentSettingsLoading.value) {
+    return t('loadingSessions');
+  }
+
+  return isConnected.value ? t('agentEmptyDescription') : t('agentDisconnectedDescription');
+});
 const agentThinkStyle = computed(() => ({
   '--agent-think-label': `"${t('agentThinkingLabel')}"`
 }));
@@ -406,11 +416,11 @@ watch(
     <section v-else class="agent-empty-card">
       <EmptyStatePanel
         :compact="false"
-        :description="agentSettingsLoading ? t('loadingSessions') : t('agentEmptyDescription')"
-        :icon="Sparkles"
-        :title="t('agentEmptyTitle')"
+        :description="agentEmptyDescription"
+        :icon="isConnected ? Sparkles : ServerCog"
+        :title="agentEmptyTitle"
       >
-        <template #actions>
+        <template v-if="isConnected" #actions>
           <button class="primary-btn agent-empty-cta" @click="void store.openAgentSettingsModal()">
             {{ t('openTerminalSettings') }}
           </button>

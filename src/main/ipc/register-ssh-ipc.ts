@@ -10,6 +10,7 @@ import { getMainWindow } from '../state/main-window';
 import {
   broadcastSshData,
   filterInteractiveShellDisplay,
+  getSshStatusSnapshot,
   broadcastSshLogData,
   broadcastSshLogStatus,
   broadcastSshStatus,
@@ -34,7 +35,8 @@ import {
   renameRemoteEntry,
   sftpRealpath,
   syncLocalFileToRemote,
-  uploadRemoteFile
+  uploadRemoteFile,
+  writeRemoteTextFile
 } from '../ssh/remote-files';
 import { readRemoteApps } from '../ssh/remote-apps';
 import { readLiveSystemMetrics, readSystemMetrics } from '../ssh/system-metrics';
@@ -679,7 +681,7 @@ export function registerSshIpc(): void {
       throw new Error('Log path is required.');
     }
 
-    disposeSshLogTail();
+    disposeSshLogTail(payload.streamId);
 
     return await new Promise<{ ok: true }>((resolve, reject) => {
       const command = createCommandBatch(
@@ -701,6 +703,7 @@ exec tail -n ${lineCount} -f -- ${quoteShellArg(path)}
       ensureSshClient().exec(command, (error, stream) => {
         if (error) {
           broadcastSshLogStatus({
+            streamId: payload.streamId,
             status: 'error',
             path,
             message: error.message
@@ -709,20 +712,25 @@ exec tail -n ${lineCount} -f -- ${quoteShellArg(path)}
           return;
         }
 
-        setSshLogStream(stream);
+        setSshLogStream(payload.streamId, stream);
         broadcastSshLogStatus({
+          streamId: payload.streamId,
           status: 'running',
           path,
           message: `Streaming ${path}`
         });
 
         stream.on('data', (chunk: Buffer) => {
-          broadcastSshLogData(chunk.toString('utf8'));
+          broadcastSshLogData({
+            streamId: payload.streamId,
+            chunk: chunk.toString('utf8')
+          });
         });
 
         stream.stderr.on('data', (chunk: Buffer) => {
           const message = chunk.toString('utf8');
           broadcastSshLogStatus({
+            streamId: payload.streamId,
             status: 'error',
             path,
             message
@@ -730,8 +738,9 @@ exec tail -n ${lineCount} -f -- ${quoteShellArg(path)}
         });
 
         stream.on('close', () => {
-          setSshLogStream(null);
+          setSshLogStream(payload.streamId, null);
           broadcastSshLogStatus({
+            streamId: payload.streamId,
             status: 'idle',
             path,
             message: `Stopped streaming ${path}`
@@ -743,14 +752,16 @@ exec tail -n ${lineCount} -f -- ${quoteShellArg(path)}
     });
   });
 
-  ipcMain.handle('ssh:stop-log-tail', async () => {
-    disposeSshLogTail({
+  ipcMain.handle('ssh:stop-log-tail', async (_event, streamId: string) => {
+    disposeSshLogTail(streamId, {
+      streamId,
       status: 'idle',
       path: '',
       message: 'Log stream stopped.'
     });
     return { ok: true as const };
   });
+  ipcMain.handle('ssh:get-status-snapshot', async () => getSshStatusSnapshot());
 
   ipcMain.handle('ssh:list-remote', async (_event, payload) => listRemoteDirectory(payload));
   ipcMain.handle('ssh:complete-remote-path', async (_event, payload) =>
@@ -768,6 +779,9 @@ exec tail -n ${lineCount} -f -- ${quoteShellArg(path)}
     registerRemoteOpenFileWatch(downloadedFile.localPath, downloadedFile.path);
     return downloadedFile;
   });
+  ipcMain.handle('ssh:write-remote-text-file', async (_event, payload) =>
+    writeRemoteTextFile(payload)
+  );
   ipcMain.handle('ssh:upload-remote-file', async (_event, payload) => uploadRemoteFile(payload));
   ipcMain.handle('ssh:create-remote-directory', async (_event, payload) =>
     createRemoteDirectory(payload)

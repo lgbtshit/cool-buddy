@@ -1,14 +1,18 @@
-import type { BrowserWindow } from 'electron';
+import { BrowserWindow } from 'electron';
 import { Client } from 'ssh2';
 import type { ClientChannel, SFTPWrapper } from 'ssh2';
+import type { SshLogDataPayload, SshLogStatusPayload, SshStatusPayload } from '../shared/types';
 import { getMainWindow } from '../state/main-window';
-import type { SshLogStatusPayload, SshStatusPayload } from '../shared/types';
 
 let sshClient: Client | null = null;
 let sshStream: ClientChannel | null = null;
 let sftp: SFTPWrapper | null = null;
-let sshLogStream: ClientChannel | null = null;
+const sshLogStreams = new Map<string, ClientChannel>();
 let interactiveShellCommandChain: Promise<void> = Promise.resolve();
+let currentSshStatus: SshStatusPayload = {
+  status: 'disconnected',
+  message: 'SSH session is not connected.'
+};
 
 type InteractiveShellDisplayState = {
   startMarker: string;
@@ -20,16 +24,18 @@ type InteractiveShellDisplayState = {
 let interactiveShellDisplayState: InteractiveShellDisplayState | null = null;
 
 export function sendSshStatus(window: BrowserWindow, payload: SshStatusPayload): void {
+  currentSshStatus = payload;
   window.webContents.send('ssh:status', payload);
 }
 
 export function broadcastSshStatus(payload: SshStatusPayload): void {
-  const mainWindow = getMainWindow();
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
+  currentSshStatus = payload;
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue;
+    }
+    window.webContents.send('ssh:status', payload);
   }
-
-  sendSshStatus(mainWindow, payload);
 }
 
 export function broadcastSshData(chunk: string): void {
@@ -91,22 +97,26 @@ export function filterInteractiveShellDisplay(chunk: string): string {
   return visible + remainder.slice(statusMatch[0].length);
 }
 
-export function broadcastSshLogData(chunk: string): void {
-  const mainWindow = getMainWindow();
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
+export function broadcastSshLogData(payload: SshLogDataPayload): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue;
+    }
+    window.webContents.send('ssh:log-data', payload);
   }
-
-  mainWindow.webContents.send('ssh:log-data', chunk);
 }
 
 export function broadcastSshLogStatus(payload: SshLogStatusPayload): void {
-  const mainWindow = getMainWindow();
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue;
+    }
+    window.webContents.send('ssh:log-status', payload);
   }
+}
 
-  mainWindow.webContents.send('ssh:log-status', payload);
+export function getSshStatusSnapshot(): SshStatusPayload {
+  return currentSshStatus;
 }
 
 export function setSshClient(client: Client | null): void {
@@ -125,8 +135,13 @@ export function setSftpClient(client: SFTPWrapper | null): void {
   sftp = client;
 }
 
-export function setSshLogStream(stream: ClientChannel | null): void {
-  sshLogStream = stream;
+export function setSshLogStream(streamId: string, stream: ClientChannel | null): void {
+  if (!stream) {
+    sshLogStreams.delete(streamId);
+    return;
+  }
+
+  sshLogStreams.set(streamId, stream);
 }
 
 export function ensureSftp(): SFTPWrapper {
@@ -150,11 +165,17 @@ export function ensureSshStream(): ClientChannel {
   return sshStream;
 }
 
-export function disposeSshLogTail(payload?: SshLogStatusPayload): void {
-  if (sshLogStream) {
-    sshLogStream.removeAllListeners();
-    sshLogStream.close();
-    sshLogStream = null;
+export function disposeSshLogTail(streamId?: string, payload?: SshLogStatusPayload): void {
+  const targets = streamId ? [[streamId, sshLogStreams.get(streamId) ?? null] as const] : [...sshLogStreams];
+
+  for (const [id, stream] of targets) {
+    if (!stream) {
+      continue;
+    }
+
+    stream.removeAllListeners();
+    stream.close();
+    sshLogStreams.delete(id);
   }
 
   if (payload) {
@@ -394,11 +415,7 @@ export async function measureSshLatency(): Promise<number | null> {
 }
 
 export function disposeSsh(window?: BrowserWindow): void {
-  disposeSshLogTail({
-    status: 'idle',
-    path: '',
-    message: 'Log stream stopped.'
-  });
+  disposeSshLogTail();
 
   if (sshStream) {
     sshStream.removeAllListeners();

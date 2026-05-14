@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import {
-  Check,
   ChevronDown,
   Circle,
   Languages,
-  MoreHorizontal,
+  Check,
+  Minus,
+  PanelsTopLeft,
   Plus,
   Server,
   Database,
@@ -142,8 +143,16 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <button class="tab-context-item" @click="store.removeTab(tabMenu.sessionId)">
-          <MoreHorizontal :size="10" />
+          <Minus :size="11" />
           <span>{{ t('removeTab') }}</span>
+        </button>
+        <button class="tab-context-item" @click="store.removeOtherTabs(tabMenu.sessionId)">
+          <PanelsTopLeft :size="11" />
+          <span>{{ t('removeOtherTabs') }}</span>
+        </button>
+        <button class="tab-context-item" @click="store.removeAllTabs()">
+          <PanelsTopLeft :size="11" />
+          <span>{{ t('removeAllTabs') }}</span>
         </button>
       </div>
     </div>

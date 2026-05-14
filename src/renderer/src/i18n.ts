@@ -121,6 +121,9 @@ const baseMessages = {
     agentEmptyTitle: '\u8fd8\u6ca1\u6709\u914d\u7f6e AI \u6a21\u578b',
     agentEmptyDescription:
       '\u5148\u5728\u7ec8\u7aef\u8bbe\u7f6e\u91cc\u914d\u597d\u5927\u6a21\u578b\u5382\u5546\u3001Base URL \u548c API Key\uff0c\u8fd9\u91cc\u624d\u4f1a\u663e\u793a Agent \u9762\u677f\u548c\u5feb\u6377\u64cd\u4f5c\u3002',
+    agentDisconnectedTitle: '\u672a\u8fde\u63a5\u8fdc\u7a0b\u4f1a\u8bdd',
+    agentDisconnectedDescription:
+      '\u5148\u8fde\u63a5\u5f53\u524d\u4f1a\u8bdd\uff0c\u8fde\u63a5\u6210\u529f\u540e\uff0c\u8fd9\u91cc\u624d\u4f1a\u663e\u793a AI Agent \u9762\u677f\u548c\u5feb\u6377\u64cd\u4f5c\u3002',
     openTerminalSettings: '\u6253\u5f00\u7ec8\u7aef\u8bbe\u7f6e',
     connected: '\u5df2\u8fde\u63a5',
     latency: '\u5ef6\u8fdf',
@@ -141,6 +144,8 @@ const baseMessages = {
     sessionConnecting: '\u8fde\u63a5\u4e2d',
     sessionError: '\u8fde\u63a5\u5931\u8d25',
     removeTab: '\u5220\u9664\u6807\u7b7e',
+    removeOtherTabs: '\u5173\u95ed\u5176\u4ed6\u6807\u7b7e',
+    removeAllTabs: '\u5173\u95ed\u5168\u90e8\u6807\u7b7e',
     deleteSessionTitle: '\u5220\u9664\u4f1a\u8bdd',
     deleteSessionAction: '\u5220\u9664\u4f1a\u8bdd',
     deleteSessionMenu: '\u5220\u9664\u4f1a\u8bdd',
@@ -177,7 +182,11 @@ const baseMessages = {
       '\u5148\u8fde\u63a5\u5230\u8fdc\u7a0b\u4f1a\u8bdd\uff0c\u7136\u540e\u518d\u542f\u52a8\u5b9e\u65f6\u65e5\u5fd7\u3002',
     logInvalidFileTitle: '\u65e5\u5fd7\u8def\u5f84\u65e0\u6548',
     logInvalidFileMessage:
-      '\u8bf7\u8f93\u5165\u4e00\u4e2a\u771f\u5b9e\u5b58\u5728\u7684\u65e5\u5fd7\u6587\u4ef6\u8def\u5f84\uff0c\u4e0d\u80fd\u662f\u76ee\u5f55\u6216\u5176\u4ed6\u7c7b\u578b\u3002'
+      '\u8bf7\u8f93\u5165\u4e00\u4e2a\u771f\u5b9e\u5b58\u5728\u7684\u65e5\u5fd7\u6587\u4ef6\u8def\u5f84\uff0c\u4e0d\u80fd\u662f\u76ee\u5f55\u6216\u5176\u4ed6\u7c7b\u578b\u3002',
+    logAddStream: '\u65b0\u589e\u65e5\u5fd7\u7a97\u683c',
+    logCloseStream: '\u5173\u95ed\u65e5\u5fd7\u7a97\u683c',
+    logPopout: '\u5f39\u51fa\u4e3a\u72ec\u7acb\u7a97\u53e3',
+    logStreamLabel: '\u65e5\u5fd7\u6d41'
   },
   'en-US': {
     pasteConfirmTitle: 'Detected multi-line paste',
@@ -295,6 +304,9 @@ const baseMessages = {
     agentEmptyTitle: 'No AI model configured yet',
     agentEmptyDescription:
       'Set the provider, base URL, and API key in Terminal Settings first. The agent panel and quick actions will appear here after that.',
+    agentDisconnectedTitle: 'No remote session connected',
+    agentDisconnectedDescription:
+      'Connect the current session first. The AI agent panel and quick actions become available after the terminal is connected.',
     openTerminalSettings: 'Open Terminal Settings',
     connected: 'Connected',
     latency: 'Latency',
@@ -313,6 +325,8 @@ const baseMessages = {
     sessionConnecting: 'Connecting',
     sessionError: 'Connection Error',
     removeTab: 'Remove Tab',
+    removeOtherTabs: 'Close Other Tabs',
+    removeAllTabs: 'Close All Tabs',
     deleteSessionTitle: 'Delete Session',
     deleteSessionAction: 'Delete Session',
     deleteSessionMenu: 'Delete Session',
@@ -346,7 +360,11 @@ const baseMessages = {
     logDisconnectedHint: 'Connect to a remote session first, then start the live log stream.',
     logInvalidFileTitle: 'Invalid log path',
     logInvalidFileMessage:
-      'Please enter a real log file path. Directories and non-file targets cannot be streamed.'
+      'Please enter a real log file path. Directories and non-file targets cannot be streamed.',
+    logAddStream: 'Add Log Pane',
+    logCloseStream: 'Close Log Pane',
+    logPopout: 'Open In Window',
+    logStreamLabel: 'Log Stream'
   }
 } as const;
 

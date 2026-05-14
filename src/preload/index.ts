@@ -28,8 +28,14 @@ type SshCommandBatchPayload = {
 };
 
 type SshLogTailPayload = {
+  streamId: string;
   path: string;
   lineCount: number;
+};
+
+type SshLogDataPayload = {
+  streamId: string;
+  chunk: string;
 };
 
 type SshStatusPayload = {
@@ -38,6 +44,7 @@ type SshStatusPayload = {
 };
 
 type SshLogStatusPayload = {
+  streamId: string;
   status: 'idle' | 'running' | 'error';
   path: string;
   message: string;
@@ -287,7 +294,9 @@ const api = {
       ipcRenderer.invoke('ssh:execute-command-batch', payload),
     startLogTail: (payload: SshLogTailPayload): Promise<{ ok: true }> =>
       ipcRenderer.invoke('ssh:start-log-tail', payload),
-    stopLogTail: (): Promise<{ ok: true }> => ipcRenderer.invoke('ssh:stop-log-tail'),
+    stopLogTail: (streamId: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('ssh:stop-log-tail', streamId),
+    getStatusSnapshot: (): Promise<SshStatusPayload> => ipcRenderer.invoke('ssh:get-status-snapshot'),
     disconnect: () => ipcRenderer.invoke('ssh:disconnect'),
     listRemote: (payload?: { path?: string; showHidden?: boolean }): Promise<RemoteDirectory> =>
       ipcRenderer.invoke('ssh:list-remote', payload),
@@ -299,6 +308,11 @@ const api = {
       ipcRenderer.invoke('ssh:read-remote-file', payload),
     openRemoteFile: (payload: { path: string }): Promise<{ path: string; localPath: string }> =>
       ipcRenderer.invoke('ssh:open-remote-file', payload),
+    writeRemoteTextFile: (payload: {
+      path: string;
+      content: string;
+    }): Promise<{ ok: true; path: string }> =>
+      ipcRenderer.invoke('ssh:write-remote-text-file', payload),
     uploadRemoteFile: (payload: {
       directory: string;
       name: string;
@@ -337,8 +351,9 @@ const api = {
       ipcRenderer.on('ssh:status', wrapped);
       return () => ipcRenderer.removeListener('ssh:status', wrapped);
     },
-    onLogData: (listener: (data: string) => void) => {
-      const wrapped = (_event: Electron.IpcRendererEvent, data: string) => listener(data);
+    onLogData: (listener: (payload: SshLogDataPayload) => void) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, payload: SshLogDataPayload) =>
+        listener(payload);
       ipcRenderer.on('ssh:log-data', wrapped);
       return () => ipcRenderer.removeListener('ssh:log-data', wrapped);
     },
