@@ -271,6 +271,12 @@ Install dependencies:
 pnpm install
 ```
 
+Start the Tauri app in the same workspace:
+
+```bash
+pnpm tauri:dev
+```
+
 Start the dev app:
 
 ```bash
@@ -289,6 +295,7 @@ Platform packaging:
 pnpm build:win
 pnpm build:mac
 pnpm build:linux
+pnpm tauri:build
 ```
 
 ### Releases
