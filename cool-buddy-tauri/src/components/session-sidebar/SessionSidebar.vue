@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   HardDrive,
   History,
+  Pencil,
   Plus,
   Search,
   Server,
@@ -88,6 +89,22 @@ const openDeleteConfirm = () => {
   deleteConfirmTarget.value =
     sessions.value.find((item) => item.id === sessionMenu.value?.sessionId) ?? null;
   closeSessionMenu();
+};
+
+/**
+ * 打开右键选中会话的编辑弹窗。
+ * @param 无
+ * @return Promise<void> 无返回
+ */
+const openEditSession = async () => {
+  if (!sessionMenu.value) return;
+
+  const targetSession =
+    sessions.value.find((item) => item.id === sessionMenu.value?.sessionId) ?? null;
+  closeSessionMenu();
+
+  if (!targetSession) return;
+  await store.openEditSessionModal(targetSession);
 };
 
 const closeDeleteConfirm = () => {
@@ -195,6 +212,10 @@ onBeforeUnmount(() => {
       :style="sessionMenuStyle"
       @click.stop
     >
+      <button class="tab-context-item" @click="void openEditSession()">
+        <Pencil :size="10" />
+        <span>{{ t('editSessionMenu') }}</span>
+      </button>
       <button class="tab-context-item" @click="openDeleteConfirm">
         <MoreHorizontal :size="10" />
         <span>{{ t('deleteSessionMenu') }}</span>

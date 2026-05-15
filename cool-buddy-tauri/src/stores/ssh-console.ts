@@ -14,6 +14,7 @@ import type {
   AgentThreadMessage,
   ConnectionForm,
   ConnectionState,
+  DiagnosticEntry,
   LiveSystemMetrics,
   LogTailStream,
   LogTailState,
@@ -21,10 +22,12 @@ import type {
   RemoteApp,
   RemoteDirectory,
   RemoteEntry,
+  RemoteFileSyncRequest,
   SessionDraft,
   SessionAuthMethod,
   SessionGroup,
   SessionItem,
+  SessionModalMode,
   SshAuthCapabilities,
   SshKeySource,
   SystemMetrics,
@@ -47,6 +50,7 @@ const AGENT_PROVIDER_DRAFTS_STORAGE_KEY = 'cool-buddy:agent-provider-drafts';
 const LIVE_METRICS_REFRESH_INTERVAL_MS = 2000;
 const FULL_METRICS_REFRESH_INTERVAL_MS = 15000;
 const LATENCY_REFRESH_INTERVAL_MS = 5000;
+const MAX_DIAGNOSTIC_ENTRIES = 200;
 
 const AGENT_PROVIDER_PRESETS: AgentProviderOption[] = [
   {
@@ -453,10 +457,13 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   );
   const sessionsLoaded = ref(false);
   const sessionModalOpen = ref(false);
+  const sessionModalMode = ref<SessionModalMode>('create');
+  const editingSessionId = ref('');
   const tabMenu = ref<TabMenuState | null>(null);
   const remoteDirectory = ref<RemoteDirectory | null>(null);
   const remoteApps = ref<RemoteApp[]>([]);
   const remotePreview = ref<{ path: string; content: string } | null>(null);
+  const pendingRemoteFileSyncRequest = ref<RemoteFileSyncRequest | null>(null);
   const systemMetrics = ref<SystemMetrics | null>(null);
   const showHiddenFiles = ref(false);
   const explorerLoading = ref(false);
@@ -467,6 +474,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const metricsLoading = ref(false);
   const logTailLineLimit = ref(50);
   const logTailStreams = ref<LogTailStream[]>([createLogTailStream()]);
+  const diagnosticsOpen = ref(false);
+  const diagnostics = ref<DiagnosticEntry[]>([]);
   const logTailRemainders = new Map<string, string>();
   let liveMetricsRefreshTimer: number | null = null;
   let fullMetricsRefreshTimer: number | null = null;
@@ -539,6 +548,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const hasAgentProviderConfigured = computed(() => {
     return agentRuntime.value.configured;
   });
+  const diagnosticErrorCount = computed(
+    () => diagnostics.value.filter((entry) => entry.level === 'error').length
+  );
 
   const agentMessages = computed<AgentThreadMessage[]>(() => agentRuntime.value.messages);
   const pendingAgentApproval = computed<AgentApprovalRequest | null>(
@@ -791,11 +803,40 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     resetActiveSession();
   }
 
-  function resetSessionDraft() {
+  /**
+   * 重置会话表单草稿，并清空当前编辑状态。
+   * @param keepMode 是否保留当前弹窗模式
+   * @return void 无返回
+   */
+  function resetSessionDraft(keepMode = false) {
     sessionDraft.value = createDefaultSessionDraft(
       sshAuthCapabilities.value.recommendedAuthMethod,
       'default'
     );
+    editingSessionId.value = '';
+    if (!keepMode) {
+      sessionModalMode.value = 'create';
+    }
+  }
+
+  /**
+   * 将指定会话内容回填到会话表单草稿中。
+   * @param session 需要编辑的目标会话
+   * @return void 无返回
+   */
+  function applySessionToDraft(session: SessionItem) {
+    sessionDraft.value = {
+      name: session.name,
+      group: session.group,
+      host: session.host,
+      port: session.port,
+      username: session.username,
+      password: session.password,
+      authMethod: session.authMethod,
+      keySource: session.keySource,
+      privateKeyPath: session.privateKeyPath,
+      passphrase: session.passphrase
+    };
   }
 
   /**
@@ -1120,8 +1161,22 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
    */
   async function openSessionModal() {
     await loadSshAuthCapabilities();
+    sessionModalMode.value = 'create';
     resetSessionDraft();
     syncSessionDraftAuthDefaults();
+    sessionModalOpen.value = true;
+  }
+
+  /**
+   * 打开指定会话的编辑弹窗，并将原始配置回填到表单中。
+   * @param session 需要修改的会话对象
+   * @return Promise<void> 无返回
+   */
+  async function openEditSessionModal(session: SessionItem) {
+    await loadSshAuthCapabilities();
+    sessionModalMode.value = 'edit';
+    editingSessionId.value = session.id;
+    applySessionToDraft(session);
     sessionModalOpen.value = true;
   }
 
@@ -1189,7 +1244,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   async function saveSession() {
     if (!canSaveSession.value) return null;
 
-    const created = await window.api.sessions.create({
+    const payload = {
       name: sessionDraft.value.name.trim(),
       group: sessionDraft.value.group,
       host: sessionDraft.value.host.trim(),
@@ -1200,7 +1255,29 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       keySource: sessionDraft.value.keySource,
       privateKeyPath: sessionDraft.value.privateKeyPath.trim(),
       passphrase: sessionDraft.value.passphrase
-    });
+    };
+
+    if (sessionModalMode.value === 'edit') {
+      if (!editingSessionId.value) {
+        return null;
+      }
+
+      const updated = await window.api.sessions.update({
+        id: editingSessionId.value,
+        ...payload
+      });
+
+      sessions.value = sessions.value.map((item) =>
+        item.id === updated.id ? updated : item
+      );
+      selectSession(updated, { openTab: openTabIds.value.includes(updated.id) });
+      sessionModalOpen.value = false;
+      editingSessionId.value = '';
+      sessionModalMode.value = 'create';
+      return updated;
+    }
+
+    const created = await window.api.sessions.create(payload);
 
     sessions.value = [...sessions.value, created];
     selectSession(created);
@@ -1991,6 +2068,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
     if (payload.status === 'disconnected' || payload.status === 'error') {
       stopMetricsRefresh();
+      pendingRemoteFileSyncRequest.value = null;
       remoteDirectory.value = null;
       remoteApps.value = [];
       remotePreview.value = null;
@@ -2029,6 +2107,68 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     applyLocale();
   }
 
+  function setPendingRemoteFileSyncRequest(payload: RemoteFileSyncRequest | null) {
+    pendingRemoteFileSyncRequest.value = payload;
+  }
+
+  async function confirmRemoteFileSync() {
+    const request = pendingRemoteFileSyncRequest.value;
+    if (!request) {
+      return;
+    }
+
+    explorerError.value = '';
+
+    try {
+      await window.api.ssh.syncOpenRemoteFile({
+        localPath: request.localPath
+      });
+      pendingRemoteFileSyncRequest.value = null;
+    } catch (error) {
+      explorerError.value =
+        error instanceof Error ? error.message : 'Failed to sync the edited remote file.';
+    }
+  }
+
+  async function dismissRemoteFileSyncRequest() {
+    const request = pendingRemoteFileSyncRequest.value;
+    if (!request) {
+      return;
+    }
+
+    await window.api.ssh.dismissOpenRemoteFileSyncRequest({
+      localPath: request.localPath
+    });
+    pendingRemoteFileSyncRequest.value = null;
+  }
+
+  function addDiagnosticEntry(
+    entry: Omit<DiagnosticEntry, 'id' | 'timestamp'> & { timestamp?: string }
+  ) {
+    diagnostics.value = [
+      ...diagnostics.value,
+      {
+        id:
+          globalThis.crypto?.randomUUID?.() ??
+          `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: entry.timestamp ?? new Date().toISOString(),
+        ...entry
+      }
+    ].slice(-MAX_DIAGNOSTIC_ENTRIES);
+  }
+
+  function clearDiagnostics() {
+    diagnostics.value = [];
+  }
+
+  function openDiagnosticsModal() {
+    diagnosticsOpen.value = true;
+  }
+
+  function closeDiagnosticsModal() {
+    diagnosticsOpen.value = false;
+  }
+
   applyLocale();
 
   return {
@@ -2047,6 +2187,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     agentSettingsOpen,
     agentSettingsSaving,
     applyAgentProviderCode,
+    addDiagnosticEntry,
     canSaveSession,
     canSaveAgentSettings,
     chooseSessionDraftPrivateKey,
@@ -2054,7 +2195,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     ingestHarmlessAgentEvent,
     closeSessionModal,
     closeAgentSettingsModal,
+    closeDiagnosticsModal,
     closeTabMenu,
+    confirmRemoteFileSync,
     connect,
     connectToSession,
     connectionLabel,
@@ -2068,6 +2211,11 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     createRemoteDirectory,
     deleteRemoteEntry,
     deleteSession,
+    dismissRemoteFileSyncRequest,
+    clearDiagnostics,
+    diagnosticErrorCount,
+    diagnostics,
+    diagnosticsOpen,
     addLogTailStream,
     appendLogTailChunk,
     latencyLabel,
@@ -2089,11 +2237,14 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     openRemoteEntry,
     previewRemoteEntry,
     openAgentSettingsModal,
+    openDiagnosticsModal,
     openSessionModal,
+    openEditSessionModal,
     openTabIds,
     openTabMenuAt,
     openTabs,
     pendingAgentApproval,
+    pendingRemoteFileSyncRequest,
     removeAllTabs,
     removeOtherTabs,
     removeTab,
@@ -2116,6 +2267,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     setLogTailLineLimit,
     setLogTailStatus,
     sessionDraft,
+    sessionModalMode,
     sessionGroups,
     sessionModalOpen,
     sessions,
@@ -2123,6 +2275,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     sshAuthCapabilities,
     setAiInput,
     setConnectError,
+    setPendingRemoteFileSyncRequest,
     setSearchQuery,
     setStatus,
     showHiddenFiles,

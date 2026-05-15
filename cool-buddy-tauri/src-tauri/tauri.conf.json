@@ -30,6 +30,11 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": false,
+    "resources": [
+      "generated/node.exe",
+      "generated/node-backend.mjs",
+      "generated/node-backend.mjs.map"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

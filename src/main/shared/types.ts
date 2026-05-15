@@ -92,6 +92,10 @@ export type CreateSessionPayload = {
   passphrase: string;
 };
 
+export type UpdateSessionPayload = CreateSessionPayload & {
+  id: string;
+};
+
 export type AgentProviderCode =
   | 'openai'
   | 'azure-openai'

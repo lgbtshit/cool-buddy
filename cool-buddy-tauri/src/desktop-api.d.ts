@@ -104,6 +104,10 @@ type CreateSessionPayload = {
   passphrase: string;
 };
 
+type UpdateSessionPayload = CreateSessionPayload & {
+  id: string;
+};
+
 type AgentProviderSettings = {
   providerCode: AgentProviderCode;
   providerName: string;
@@ -226,13 +230,20 @@ type RemoteApp = {
   description: string | null;
 };
 
+type RemoteFileSyncRequest = {
+  localPath: string;
+  remotePath: string;
+};
+
 type AppApi = {
   app: {
     setLocale: (locale: Locale) => Promise<{ ok: true }>;
+    openDevtools: () => Promise<{ ok: true }>;
   };
   sessions: {
     list: () => Promise<SessionItem[]>;
     create: (payload: CreateSessionPayload) => Promise<SessionItem>;
+    update: (payload: UpdateSessionPayload) => Promise<SessionItem>;
     delete: (sessionId: string) => Promise<{ ok: true }>;
   };
   agentSettings: {
@@ -278,6 +289,8 @@ type AppApi = {
     ) => Promise<RemotePathCompletionResult>;
     readRemoteFile: (payload: { path: string }) => Promise<{ path: string; content: string }>;
     openRemoteFile: (payload: { path: string }) => Promise<{ path: string; localPath: string }>;
+    syncOpenRemoteFile: (payload: { localPath: string }) => Promise<{ ok: true; path: string }>;
+    dismissOpenRemoteFileSyncRequest: (payload: { localPath: string }) => Promise<{ ok: true }>;
     writeRemoteTextFile: (payload: {
       path: string;
       content: string;
@@ -307,6 +320,7 @@ type AppApi = {
     onStatus: (listener: (payload: SshStatusPayload) => void) => () => void;
     onLogData: (listener: (payload: SshLogDataPayload) => void) => () => void;
     onLogStatus: (listener: (payload: SshLogStatusPayload) => void) => () => void;
+    onRemoteFileSyncRequest: (listener: (payload: RemoteFileSyncRequest) => void) => () => void;
   };
 };
 

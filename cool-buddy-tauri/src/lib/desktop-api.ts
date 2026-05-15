@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { defaultLocale, type Locale } from '../shared/locale';
@@ -18,12 +19,17 @@ type AgentWhitelistItem = Awaited<
 type RemoteDirectory = Awaited<ReturnType<Window['api']['ssh']['listRemote']>>;
 type RemotePathCompletionPayload = Parameters<Window['api']['ssh']['completeRemotePath']>[0];
 type RemotePathCompletionResult = Awaited<ReturnType<Window['api']['ssh']['completeRemotePath']>>;
+type RemoteFileSyncRequest = Parameters<
+  Parameters<Window['api']['ssh']['onRemoteFileSyncRequest']>[0]
+>[0];
 
 const LOCALE_KEY = 'cool-buddy-tauri:locale';
+const DIAGNOSTIC_EVENT = 'cool-buddy:diagnostic';
 const sshStatusListeners = new Set<(payload: SshStatusPayload) => void>();
 const sshDataListeners = new Set<(data: string) => void>();
 const sshLogDataListeners = new Set<(payload: SshLogDataPayload) => void>();
 const sshLogStatusListeners = new Set<(payload: SshLogStatusPayload) => void>();
+const remoteFileSyncRequestListeners = new Set<(payload: RemoteFileSyncRequest) => void>();
 const agentEventListeners = new Set<
   (
     event: Parameters<Window['api']['harmlessAgent']['onEvent']>[0] extends (e: infer E) => void
@@ -34,16 +40,13 @@ const agentEventListeners = new Set<
 
 let sshStatusSnapshot: SshStatusPayload = {
   status: 'disconnected',
-  message: 'Tauri backend scaffold is ready. SSH runtime is pending migration.'
+  message: 'SSH session is not connected.'
 };
+let backendEventsReady = false;
 
 function subscribe<T>(listeners: Set<(payload: T) => void>, listener: (payload: T) => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
-}
-
-function notReady(feature: string): Error {
-  return new Error(`${feature} is not migrated yet in cool-buddy-tauri.`);
 }
 
 function emitStatus(payload: SshStatusPayload): void {
@@ -51,6 +54,23 @@ function emitStatus(payload: SshStatusPayload): void {
   for (const listener of sshStatusListeners) {
     listener(payload);
   }
+}
+
+function emitDiagnosticEvent(detail: {
+  level: 'info' | 'warning' | 'error';
+  source: 'frontend' | 'backend' | 'backend-host' | 'bridge' | 'rust' | 'unknown';
+  message: string;
+  details: string;
+  timestamp?: string;
+}): void {
+  window.dispatchEvent(
+    new CustomEvent(DIAGNOSTIC_EVENT, {
+      detail: {
+        ...detail,
+        timestamp: detail.timestamp ?? new Date().toISOString()
+      }
+    })
+  );
 }
 
 function inferTauriVersion(): string {
@@ -76,17 +96,121 @@ async function invokeCommand<T>(cmd: string, args?: Record<string, unknown>): Pr
   return invoke<T>(cmd, args);
 }
 
+async function invokeBackend<T>(method: string, args?: unknown): Promise<T> {
+  try {
+    return await invokeCommand<T>('backend_invoke', {
+      method,
+      args
+    });
+  } catch (error) {
+    emitDiagnosticEvent({
+      level: 'error',
+      source: 'bridge',
+      message: `Backend invoke failed: ${method}`,
+      details: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
+}
+
+function emitSshData(data: string): void {
+  for (const listener of sshDataListeners) {
+    listener(data);
+  }
+}
+
+function emitSshLogData(payload: SshLogDataPayload): void {
+  for (const listener of sshLogDataListeners) {
+    listener(payload);
+  }
+}
+
+function emitSshLogStatus(payload: SshLogStatusPayload): void {
+  for (const listener of sshLogStatusListeners) {
+    listener(payload);
+  }
+}
+
+function emitRemoteFileSyncRequest(payload: RemoteFileSyncRequest): void {
+  for (const listener of remoteFileSyncRequestListeners) {
+    listener(payload);
+  }
+}
+
+function emitAgentEvent(
+  event: Parameters<Window['api']['harmlessAgent']['onEvent']>[0] extends (e: infer E) => void
+    ? E
+    : never
+): void {
+  for (const listener of agentEventListeners) {
+    listener(event);
+  }
+}
+
+function ensureBackendEventListeners(): void {
+  if (backendEventsReady) {
+    return;
+  }
+
+  backendEventsReady = true;
+
+  void listen<SshStatusPayload>('ssh:status', (event) => {
+    emitStatus(event.payload);
+  });
+
+  void listen<string>('ssh:data', (event) => {
+    emitSshData(event.payload);
+  });
+
+  void listen<SshLogDataPayload>('ssh:log-data', (event) => {
+    emitSshLogData(event.payload);
+  });
+
+  void listen<SshLogStatusPayload>('ssh:log-status', (event) => {
+    emitSshLogStatus(event.payload);
+  });
+
+  void listen<RemoteFileSyncRequest>('ssh:remote-file-sync-request', (event) => {
+    emitRemoteFileSyncRequest(event.payload);
+  });
+
+  void listen<Parameters<Window['api']['harmlessAgent']['onEvent']>[0] extends (e: infer E) => void ? E : never>(
+    'harmless-agent:event',
+    (event) => {
+      emitAgentEvent(event.payload);
+    }
+  );
+
+  void listen<{ message?: string }>('backend:error', (event) => {
+    if (event.payload?.message) {
+      console.error('[cool-buddy-tauri backend]', event.payload.message);
+      emitDiagnosticEvent({
+        level: 'error',
+        source: 'backend-host',
+        message: 'Backend host error',
+        details: event.payload.message
+      });
+    }
+  });
+}
+
+ensureBackendEventListeners();
+
 const api: Window['api'] = {
   app: {
     async setLocale(locale: Locale) {
       window.localStorage.setItem(LOCALE_KEY, locale);
       await invokeCommand<{ ok: true }>('app_set_locale', { locale });
       return { ok: true };
+    },
+    openDevtools() {
+      return invokeCommand<{ ok: true }>('app_open_devtools');
     }
   },
   sessions: {
     list: () => invokeCommand('sessions_list'),
     create: (payload) => invokeCommand('sessions_create', { payload }),
+    update: (payload) => invokeCommand('sessions_update', { payload }),
     delete: (sessionId: string) => invokeCommand('sessions_delete', { sessionId })
   },
   agentSettings: {
@@ -95,34 +219,25 @@ const api: Window['api'] = {
     saveProvider: (payload) => invokeCommand('agent_settings_save_provider', { payload })
   },
   harmlessAgent: {
-    getState: (sessionId: string) => invokeCommand<AgentStateSnapshot>('harmless_agent_get_state', { sessionId }),
-    run: (payload) => invokeCommand<AgentStateSnapshot>('harmless_agent_run', { payload }),
+    getState: (sessionId: string) => invokeBackend<AgentStateSnapshot>('harmlessAgent.getState', sessionId),
+    run: (payload) => invokeBackend<AgentStateSnapshot>('harmlessAgent.run', payload),
     resolveApproval: (payload) =>
-      invokeCommand<AgentStateSnapshot>('harmless_agent_resolve_approval', { payload }),
-    listWhitelist: () => invokeCommand<AgentWhitelistItem[]>('harmless_agent_list_whitelist'),
+      invokeBackend<AgentStateSnapshot>('harmlessAgent.resolveApproval', payload),
+    listWhitelist: () => invokeBackend<AgentWhitelistItem[]>('harmlessAgent.listWhitelist'),
     createWhitelistItem: (payload) =>
-      invokeCommand<AgentWhitelistItem>('harmless_agent_create_whitelist_item', { payload }),
+      invokeBackend<AgentWhitelistItem>('harmlessAgent.createWhitelistItem', payload),
     deleteWhitelistItem: (id: string) =>
-      invokeCommand<AgentWhitelistItem[]>('harmless_agent_delete_whitelist_item', { id }),
+      invokeBackend<AgentWhitelistItem[]>('harmlessAgent.deleteWhitelistItem', id),
     onEvent(listener) {
       return subscribe(agentEventListeners, listener);
     }
   },
   ssh: {
     async connect(payload) {
-      emitStatus({
-        status: 'error',
-        message: `SSH migration for ${payload.host}:${payload.port} is not implemented yet.`
-      });
-      throw notReady('SSH connect');
+      return await invokeBackend('ssh.connect', payload);
     },
     async getAuthCapabilities() {
-      return {
-        hasAgent: false,
-        detectedDefaultKeyPaths: [],
-        defaultKeyCandidates: [],
-        recommendedAuthMethod: 'password' as SessionAuthMethod
-      };
+      return await invokeBackend('ssh.getAuthCapabilities');
     },
     async pickPrivateKey() {
       const selected = await open({
@@ -135,96 +250,85 @@ const api: Window['api'] = {
         path: typeof selected === 'string' ? selected : ''
       };
     },
-    async executeCommandBatch() {
-      throw notReady('SSH command batch');
+    async executeCommandBatch(payload) {
+      return await invokeBackend('ssh.executeCommandBatch', payload);
     },
     async startLogTail(payload) {
-      for (const listener of sshLogStatusListeners) {
-        listener({
-          streamId: payload.streamId,
-          status: 'error',
-          path: payload.path,
-          message: 'Tauri log tail runtime is pending migration.'
-        });
-      }
-      throw notReady('SSH log tail');
+      return await invokeBackend('ssh.startLogTail', payload);
     },
     async stopLogTail(streamId) {
-      for (const listener of sshLogStatusListeners) {
-        listener({
-          streamId,
-          status: 'idle',
-          path: '',
-          message: 'Log stream stopped.'
-        });
-      }
-      return { ok: true };
+      return await invokeBackend('ssh.stopLogTail', streamId);
     },
     async getStatusSnapshot() {
-      return sshStatusSnapshot;
+      const snapshot = await invokeBackend<SshStatusPayload>('ssh.getStatusSnapshot');
+      sshStatusSnapshot = snapshot;
+      return snapshot;
     },
     async disconnect() {
-      emitStatus({
-        status: 'disconnected',
-        message: 'Disconnected.'
-      });
-      return { ok: true };
+      return await invokeBackend('ssh.disconnect');
     },
     async listRemote(payload) {
-      return {
-        path: payload?.path ?? '.',
-        entries: []
-      } satisfies RemoteDirectory;
+      return await invokeBackend<RemoteDirectory>('ssh.listRemote', payload);
     },
     async completeRemotePath(payload: RemotePathCompletionPayload) {
-      return {
-        value: payload.input,
-        matches: []
-      } satisfies RemotePathCompletionResult;
+      return await invokeBackend<RemotePathCompletionResult>('ssh.completeRemotePath', payload);
     },
     async readRemoteFile(payload) {
-      throw new Error(`Remote preview is not available yet for ${payload.path}.`);
+      return await invokeBackend('ssh.readRemoteFile', payload);
     },
     async openRemoteFile(payload) {
-      await openPath(payload.path);
-      return {
-        path: payload.path,
-        localPath: payload.path
-      };
+      const opened = await invokeBackend<{ path: string; localPath: string }>(
+        'ssh.openRemoteFile',
+        payload
+      );
+      try {
+        await openPath(opened.localPath);
+      } catch (error) {
+        throw new Error(
+          `Unable to open remote file.\nRemote file: ${opened.path}\nLocal temp file: ${opened.localPath}\nSystem message: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      return opened;
+    },
+    async syncOpenRemoteFile(payload) {
+      return await invokeBackend('ssh.syncOpenRemoteFile', payload);
+    },
+    async dismissOpenRemoteFileSyncRequest(payload) {
+      return await invokeBackend('ssh.dismissOpenRemoteFileSyncRequest', payload);
     },
     async writeRemoteTextFile(payload) {
-      throw new Error(`Remote write is not available yet for ${payload.path}.`);
+      return await invokeBackend('ssh.writeRemoteTextFile', payload);
     },
     async uploadRemoteFile(payload) {
-      throw new Error(`Remote upload is not available yet for ${payload.directory}/${payload.name}.`);
+      return await invokeBackend('ssh.uploadRemoteFile', payload);
     },
     async createRemoteDirectory(payload) {
-      throw new Error(`Remote mkdir is not available yet for ${payload.path}.`);
+      return await invokeBackend('ssh.createRemoteDirectory', payload);
     },
     async renameRemoteEntry(payload) {
-      throw new Error(`Remote rename is not available yet for ${payload.oldPath}.`);
+      return await invokeBackend('ssh.renameRemoteEntry', payload);
     },
     async deleteRemoteEntry(payload) {
-      throw new Error(`Remote delete is not available yet for ${payload.path}.`);
+      return await invokeBackend('ssh.deleteRemoteEntry', payload);
     },
     async getLatency() {
-      return null;
+      return await invokeBackend('ssh.getLatency');
     },
     async getSystemMetrics() {
-      return null;
+      return await invokeBackend('ssh.getSystemMetrics');
     },
     async getLiveMetrics() {
-      return null;
+      return await invokeBackend('ssh.getLiveMetrics');
     },
     async getRemoteApps() {
-      return [];
+      return await invokeBackend('ssh.getRemoteApps');
     },
     input(data: string) {
-      for (const listener of sshDataListeners) {
-        listener(data);
-      }
+      void invokeBackend('ssh.input', data);
     },
-    resize() {},
+    resize(size) {
+      void invokeBackend('ssh.resize', size);
+    },
     onData(listener) {
       return subscribe(sshDataListeners, listener);
     },
@@ -236,6 +340,9 @@ const api: Window['api'] = {
     },
     onLogStatus(listener) {
       return subscribe(sshLogStatusListeners, listener);
+    },
+    onRemoteFileSyncRequest(listener) {
+      return subscribe(remoteFileSyncRequestListeners, listener);
     }
   }
 };
@@ -246,6 +353,12 @@ window.api = api;
 void invokeCommand<string>('app_get_locale')
   .then((locale) => {
     window.localStorage.setItem(LOCALE_KEY, locale || defaultLocale);
+    return invokeBackend<SshStatusPayload>('ssh.getStatusSnapshot');
+  })
+  .then((snapshot) => {
+    if (snapshot) {
+      sshStatusSnapshot = snapshot;
+    }
   })
   .catch(() => {
     if (!window.localStorage.getItem(LOCALE_KEY)) {

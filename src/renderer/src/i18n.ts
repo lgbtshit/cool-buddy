@@ -26,6 +26,7 @@ const baseMessages = {
     noSessionsHint:
       '\u5148\u65b0\u5efa\u4e00\u4e2a SSH \u4f1a\u8bdd\uff0c\u8fd9\u4e2a\u5de5\u4f5c\u53f0\u5c31\u4f1a\u6d3b\u8d77\u6765\u3002',
     createSession: '\u65b0\u5efa\u4f1a\u8bdd',
+    editSession: '\u4fee\u6539\u4f1a\u8bdd',
     sessionAuthDescription:
       '\u4fdd\u5b58\u8fd9\u53f0\u4e3b\u673a\u7684\u8ba4\u8bc1\u65b9\u5f0f\uff0c\u4e0b\u6b21\u8fde\u63a5\u65f6\u5c31\u4e0d\u7528\u518d\u4e34\u65f6\u8865\u586b\u3002',
     sessionAuthTitle: '\u8ba4\u8bc1\u65b9\u5f0f',
@@ -148,6 +149,7 @@ const baseMessages = {
     removeAllTabs: '\u5173\u95ed\u5168\u90e8\u6807\u7b7e',
     deleteSessionTitle: '\u5220\u9664\u4f1a\u8bdd',
     deleteSessionAction: '\u5220\u9664\u4f1a\u8bdd',
+    editSessionMenu: '\u4fee\u6539\u4f1a\u8bdd',
     deleteSessionMenu: '\u5220\u9664\u4f1a\u8bdd',
     explorerDisconnectedTitle: '\u672a\u8fde\u63a5\u8fdc\u7a0b\u4f1a\u8bdd',
     explorerDisconnectedHint:
@@ -211,6 +213,7 @@ const baseMessages = {
     noSessions: 'No sessions yet',
     noSessionsHint: 'Create your first SSH session to bring this workspace to life.',
     createSession: 'New Session',
+    editSession: 'Edit Session',
     sessionAuthDescription:
       'Save how this host should authenticate so future connections can start without extra setup.',
     sessionAuthTitle: 'Authentication',
@@ -329,6 +332,7 @@ const baseMessages = {
     removeAllTabs: 'Close All Tabs',
     deleteSessionTitle: 'Delete Session',
     deleteSessionAction: 'Delete Session',
+    editSessionMenu: 'Edit Session',
     deleteSessionMenu: 'Delete Session',
     explorerDisconnectedTitle: 'Remote session is not connected',
     explorerDisconnectedHint:

@@ -80,6 +80,10 @@ type CreateSessionPayload = {
   passphrase: string;
 };
 
+type UpdateSessionPayload = CreateSessionPayload & {
+  id: string;
+};
+
 type AgentProviderCode =
   | 'openai'
   | 'azure-openai'
@@ -237,6 +241,7 @@ type AppApi = {
   sessions: {
     list: () => Promise<SessionItem[]>;
     create: (payload: CreateSessionPayload) => Promise<SessionItem>;
+    update: (payload: UpdateSessionPayload) => Promise<SessionItem>;
     delete: (sessionId: string) => Promise<{ ok: true }>;
   };
   agentSettings: {

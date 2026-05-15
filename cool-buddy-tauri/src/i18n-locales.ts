@@ -29,6 +29,7 @@ export const localizedMessageOverrides = {
     sessionPrivateKeyPath: 'Private Key Path',
     sessionPrivateKeyPassphrase: 'Key Passphrase',
     browsePrivateKey: 'Choose Key',
+    editSessionMenu: 'Edit Session',
     keybindingCopySelectionTitle: 'Copy terminal selection',
     keybindingCopySelectionDetail:
       'Select text inside the terminal, then copy it to the clipboard.',

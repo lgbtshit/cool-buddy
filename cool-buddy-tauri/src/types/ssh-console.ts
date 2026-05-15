@@ -61,6 +61,8 @@ export type SessionDraft = {
   passphrase: string;
 };
 
+export type SessionModalMode = 'create' | 'edit';
+
 export type ConnectionForm = {
   host: string;
   port: number;
@@ -217,4 +219,28 @@ export type LogTailStream = {
   state: LogTailState;
   error: string;
   statusMessage: string;
+};
+
+export type DiagnosticLevel = 'info' | 'warning' | 'error';
+
+export type DiagnosticSource =
+  | 'frontend'
+  | 'backend'
+  | 'backend-host'
+  | 'bridge'
+  | 'rust'
+  | 'unknown';
+
+export type DiagnosticEntry = {
+  id: string;
+  level: DiagnosticLevel;
+  source: DiagnosticSource;
+  message: string;
+  details: string;
+  timestamp: string;
+};
+
+export type RemoteFileSyncRequest = {
+  localPath: string;
+  remotePath: string;
 };

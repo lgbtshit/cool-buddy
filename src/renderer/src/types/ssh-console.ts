@@ -61,6 +61,8 @@ export type SessionDraft = {
   passphrase: string;
 };
 
+export type SessionModalMode = 'create' | 'edit';
+
 export type ConnectionForm = {
   host: string;
   port: number;

@@ -11,7 +11,7 @@ import { useAppCopy } from '../../composables/use-app-copy';
 import { useSshConsoleStore } from '../../stores/ssh-console';
 
 const store = useSshConsoleStore();
-const { canSaveSession, sessionDraft, sessionModalOpen, sessions, sshAuthCapabilities } =
+const { canSaveSession, sessionDraft, sessionModalMode, sessionModalOpen, sessions, sshAuthCapabilities } =
   storeToRefs(store);
 const { t } = useAppCopy();
 
@@ -35,6 +35,19 @@ const defaultKeyPreview = computed(() => {
     remainingCount: Math.max(0, paths.length - 2)
   };
 });
+
+/**
+ * 计算当前会话弹窗的标题文案。
+ * @param 无
+ * @return string 当前弹窗标题
+ */
+const sessionModalTitle = computed(() => {
+  if (sessionModalMode.value === 'edit') {
+    return t('editSession');
+  }
+
+  return t('createSession');
+});
 </script>
 
 <template>
@@ -42,7 +55,7 @@ const defaultKeyPreview = computed(() => {
     <section class="session-modal session-create-modal">
       <div class="modal-header">
         <div>
-          <h2>{{ t('createSession') }}</h2>
+          <h2>{{ sessionModalTitle }}</h2>
           <p>{{ t('sessionAuthDescription') }}</p>
         </div>
         <button v-if="sessions.length" class="icon-btn" @click="store.closeSessionModal()">

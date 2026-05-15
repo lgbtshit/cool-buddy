@@ -13,7 +13,8 @@ import type {
   SaveAgentProviderSettingsPayload,
   SessionGroup,
   SessionItem,
-  SessionRecord
+  SessionRecord,
+  UpdateSessionPayload
 } from '../shared/types';
 
 let database: Database.Database | null = null;
@@ -323,6 +324,99 @@ export function createSession(payload: CreateSessionPayload): SessionItem {
     .run(record);
 
   return mapSession(record);
+}
+
+/**
+ * 更新已保存的会话信息。
+ * @param payload 会话更新参数，包含会话标识与最新连接配置
+ * @return SessionItem 更新后的会话展示对象
+ */
+export function updateSession(payload: UpdateSessionPayload): SessionItem {
+  const trimmedId = payload.id.trim();
+  const trimmed = {
+    id: trimmedId,
+    name: payload.name.trim(),
+    group: payload.group,
+    host: payload.host.trim(),
+    port: Number(payload.port),
+    username: payload.username.trim(),
+    password: payload.password,
+    authMethod: normalizeSessionAuthMethod(payload.authMethod),
+    keySource: normalizeSshKeySource(payload.keySource),
+    privateKeyPath: payload.privateKeyPath.trim(),
+    passphrase: payload.passphrase
+  };
+
+  if (!trimmed.id) {
+    throw new Error('Session id is required.');
+  }
+
+  if (!trimmed.name || !trimmed.host || !trimmed.username || !trimmed.port) {
+    throw new Error('Session fields are incomplete.');
+  }
+
+  if (trimmed.authMethod === 'password' && !trimmed.password) {
+    throw new Error('Password authentication requires a password.');
+  }
+
+  if (
+    trimmed.authMethod === 'systemKey' &&
+    trimmed.keySource === 'custom' &&
+    !trimmed.privateKeyPath
+  ) {
+    throw new Error('A custom SSH key session must include a private key path.');
+  }
+
+  const existingRecord = getDatabase()
+    .prepare(
+      `
+        SELECT id, name, group_name, host, port, username, password,
+               auth_method, key_source, private_key_path, passphrase, created_at
+        FROM sessions
+        WHERE id = ?
+      `
+    )
+    .get(trimmed.id) as SessionRecord | undefined;
+
+  if (!existingRecord) {
+    throw new Error('Session not found.');
+  }
+
+  const updatedRecord: SessionRecord = {
+    id: existingRecord.id,
+    name: trimmed.name,
+    group_name: trimmed.group,
+    host: trimmed.host,
+    port: trimmed.port,
+    username: trimmed.username,
+    password: trimmed.password,
+    auth_method: trimmed.authMethod,
+    key_source: trimmed.keySource,
+    private_key_path: trimmed.privateKeyPath,
+    passphrase: trimmed.passphrase,
+    created_at: existingRecord.created_at
+  };
+
+  getDatabase()
+    .prepare(
+      `
+        UPDATE sessions
+        SET name = @name,
+            group_name = @group_name,
+            host = @host,
+            port = @port,
+            username = @username,
+            password = @password,
+            auth_method = @auth_method,
+            key_source = @key_source,
+            private_key_path = @private_key_path,
+            passphrase = @passphrase
+        WHERE id = @id
+      `
+    )
+    .run(updatedRecord);
+
+  return mapSession(updatedRecord);
 }
 
 export function deleteSession(sessionId: string): void {

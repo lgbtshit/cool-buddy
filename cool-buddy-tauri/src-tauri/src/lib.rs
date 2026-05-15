@@ -1,14 +1,29 @@
+mod backend_bridge;
+
+use backend_bridge::BackendBridge;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     fs,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 
 #[derive(Debug, Serialize)]
 struct OkResponse {
     ok: bool,
+}
+
+#[tauri::command]
+fn app_open_devtools(app: AppHandle) -> Result<OkResponse, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window was not found.".to_string())?;
+
+    window.open_devtools();
+
+    Ok(OkResponse { ok: true })
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -32,6 +47,22 @@ struct SessionItem {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct CreateSessionPayload {
+    name: String,
+    group: SessionGroup,
+    host: String,
+    port: u16,
+    username: String,
+    password: String,
+    auth_method: SessionAuthMethod,
+    key_source: SshKeySource,
+    private_key_path: String,
+    passphrase: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct UpdateSessionPayload {
+    id: String,
     name: String,
     group: SessionGroup,
     host: String,
@@ -351,6 +382,39 @@ fn sessions_create(app: AppHandle, payload: CreateSessionPayload) -> Result<Sess
 }
 
 #[tauri::command]
+/// 更新已保存的会话信息。
+/// @param app Tauri 应用句柄，用于读取与写回会话数据文件
+/// @param payload 会话更新参数，包含目标会话 id 与最新连接配置
+/// @return Result<SessionItem, String> 返回更新后的会话对象，失败时返回错误信息
+fn sessions_update(app: AppHandle, payload: UpdateSessionPayload) -> Result<SessionItem, String> {
+    let mut sessions = read_json(&app, "sessions.json", Vec::<SessionItem>::new())?;
+    let session_index = sessions
+        .iter()
+        .position(|item| item.id == payload.id)
+        .ok_or_else(|| "Session not found.".to_string())?;
+
+    let updated_session = SessionItem {
+        id: sessions[session_index].id.clone(),
+        name: payload.name,
+        group: payload.group.clone(),
+        host: payload.host,
+        port: payload.port,
+        username: payload.username,
+        password: payload.password,
+        auth_method: payload.auth_method,
+        key_source: payload.key_source,
+        private_key_path: payload.private_key_path,
+        passphrase: payload.passphrase,
+        status: create_session_status(&payload.group),
+        icon: create_session_icon(&payload.group),
+    };
+
+    sessions[session_index] = updated_session.clone();
+    write_json(&app, "sessions.json", &sessions)?;
+    Ok(updated_session)
+}
+
+#[tauri::command]
 fn sessions_delete(app: AppHandle, session_id: String) -> Result<OkResponse, String> {
     let mut sessions = read_json(&app, "sessions.json", Vec::<SessionItem>::new())?;
     sessions.retain(|item| item.id != session_id);
@@ -438,16 +502,32 @@ fn harmless_agent_delete_whitelist_item(
     Ok(items)
 }
 
+#[tauri::command]
+fn backend_invoke(
+    bridge: State<'_, BackendBridge>,
+    method: String,
+    args: Option<Value>,
+) -> Result<Value, String> {
+    bridge.invoke(&method, args.unwrap_or(Value::Null))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let bridge = BackendBridge::new(app.handle().clone())?;
+            app.manage(bridge);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             app_get_locale,
+            app_open_devtools,
             app_set_locale,
             sessions_list,
             sessions_create,
+            sessions_update,
             sessions_delete,
             agent_settings_get_provider,
             agent_settings_save_provider,
@@ -456,7 +536,8 @@ pub fn run() {
             harmless_agent_resolve_approval,
             harmless_agent_list_whitelist,
             harmless_agent_create_whitelist_item,
-            harmless_agent_delete_whitelist_item
+            harmless_agent_delete_whitelist_item,
+            backend_invoke
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

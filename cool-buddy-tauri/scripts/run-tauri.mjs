@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync } from 'node:fs';
+import { accessSync, constants, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -53,9 +53,42 @@ function findBinary(binaryName, dirs) {
 const rustBinDirs = collectRustBinDirs();
 const cargoPath = findBinary('cargo.exe', rustBinDirs);
 const rustcPath = findBinary('rustc.exe', rustBinDirs);
+
+async function buildNodeBackend() {
+  const backendScript = join(process.cwd(), 'scripts', 'build-node-backend.mjs');
+  const generatedDir = join(process.cwd(), 'src-tauri', 'generated');
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [backendScript], {
+      stdio: 'inherit',
+      cwd: process.cwd(),
+      env: process.env
+    });
+
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      if (code === 0) {
+        resolve(undefined);
+        return;
+      }
+
+      reject(new Error(`Node backend build failed with exit code ${code ?? 1}.`));
+    });
+  });
+
+  mkdirSync(generatedDir, { recursive: true });
+  const bundledNodePath = join(generatedDir, process.platform === 'win32' ? 'node.exe' : 'node');
+  if (!existsSync(bundledNodePath)) {
+    copyFileSync(process.execPath, bundledNodePath);
+  }
+}
+
+await buildNodeBackend();
+
 const env = {
   ...process.env,
   PATH: [...rustBinDirs, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
+  COOL_BUDDY_NODE_EXECUTABLE: process.execPath,
   ...(cargoPath ? { CARGO: cargoPath } : {}),
   ...(rustcPath ? { RUSTC: rustcPath } : {})
 };

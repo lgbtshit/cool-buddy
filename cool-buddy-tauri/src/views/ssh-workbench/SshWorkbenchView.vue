@@ -5,10 +5,12 @@ import 'xterm/css/xterm.css';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAppCopy } from '../../composables/use-app-copy';
+import DiagnosticsModal from '../../components/diagnostics-modal/DiagnosticsModal.vue';
 import InspectorSidebar from '../../components/inspector-sidebar/InspectorSidebar.vue';
 import KeybindingsModal from '../../components/keybindings-modal/KeybindingsModal.vue';
 import LogAlertModal from '../../components/log-alert-modal/LogAlertModal.vue';
 import LogPanel from '../../components/log-panel/LogPanel.vue';
+import RemoteFileSyncModal from '../../components/remote-file-sync-modal/RemoteFileSyncModal.vue';
 import LogSettingsModal from '../../components/log-settings-modal/LogSettingsModal.vue';
 import PasteConfirmModal from '../../components/paste-confirm-modal/PasteConfirmModal.vue';
 import SessionModal from '../../components/session-modal/SessionModal.vue';
@@ -82,6 +84,7 @@ let removeAgentEventListener: (() => void) | null = null;
 let removeTerminalInput: { dispose: () => void } | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let terminalResizeFrame: number | null = null;
+let removeRemoteFileSyncRequestListener: (() => void) | null = null;
 const popupMonitorTimers = new Map<string, number>();
 
 const terminalSessionName = computed(() => activeSession.value?.name ?? '--');
@@ -263,7 +266,9 @@ async function executeLineByLinePaste() {
   try {
     await window.api.ssh.executeCommandBatch({ content });
   } catch (error) {
-    console.error('Batch execution failed.', error);
+    const message = error instanceof Error ? error.message.trim() : t('logInvalidFileMessage');
+    logAlertMessage.value = message || t('logInvalidFileMessage');
+    logAlertOpen.value = true;
   }
 }
 
@@ -384,6 +389,10 @@ onMounted(() => {
     store.ingestHarmlessAgentEvent(event);
   });
 
+  removeRemoteFileSyncRequestListener = window.api.ssh.onRemoteFileSyncRequest((payload) => {
+    store.setPendingRemoteFileSyncRequest(payload);
+  });
+
   resizeObserver = new ResizeObserver(() => {
     scheduleTerminalSizeSync();
   });
@@ -399,6 +408,7 @@ onBeforeUnmount(() => {
   removeLogStatusListener?.();
   removeStatusListener?.();
   removeAgentEventListener?.();
+  removeRemoteFileSyncRequestListener?.();
   removeTerminalInput?.dispose();
   resizeObserver?.disconnect();
   for (const timerId of popupMonitorTimers.values()) {
@@ -492,6 +502,8 @@ onBeforeUnmount(() => {
       @update:line-limit="logSettingsDraft = $event"
     />
     <TerminalSettingsModal />
+    <DiagnosticsModal />
+    <RemoteFileSyncModal />
     <PasteConfirmModal
       :content="pendingPasteContent"
       :open="pasteConfirmOpen"

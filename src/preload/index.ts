@@ -81,6 +81,10 @@ type CreateSessionPayload = {
   passphrase: string;
 };
 
+type UpdateSessionPayload = CreateSessionPayload & {
+  id: string;
+};
+
 type AgentProviderCode =
   | 'openai'
   | 'azure-openai'
@@ -240,6 +244,8 @@ const api = {
     list: (): Promise<SessionItem[]> => ipcRenderer.invoke('sessions:list'),
     create: (payload: CreateSessionPayload): Promise<SessionItem> =>
       ipcRenderer.invoke('sessions:create', payload),
+    update: (payload: UpdateSessionPayload): Promise<SessionItem> =>
+      ipcRenderer.invoke('sessions:update', payload),
     delete: (sessionId: string): Promise<{ ok: true }> =>
       ipcRenderer.invoke('sessions:delete', sessionId)
   },
