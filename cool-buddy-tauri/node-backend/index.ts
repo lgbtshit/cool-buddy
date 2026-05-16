@@ -10,12 +10,16 @@ import { setMainWindow } from '../../src/main/state/main-window';
 import {
   createRemoteDirectory,
   completeRemotePath,
+  appendRemoteUploadChunk,
+  cancelRemoteUpload,
   deleteRemoteEntry,
   downloadRemoteFileToTemp,
+  finishRemoteUpload,
   listRemoteDirectory,
   readRemoteFile,
   renameRemoteEntry,
   sftpRealpath,
+  startRemoteUpload,
   uploadRemoteFile,
   syncLocalFileToRemote,
   writeRemoteTextFile
@@ -258,7 +262,11 @@ function normalizeUploadPayload(input: any) {
   return input;
 }
 
-function formatOpenRemoteFileError(openError: string, localPath: string, remotePath: string): string {
+function formatOpenRemoteFileError(
+  openError: string,
+  localPath: string,
+  remotePath: string
+): string {
   if (/requested file or directory could not be found/i.test(openError)) {
     return `Unable to open remote file because the local temporary file could not be found.\nRemote file: ${remotePath}\nLocal temp file: ${localPath}`;
   }
@@ -324,7 +332,9 @@ function registerRemoteOpenFileWatch(localPath: string, remotePath: string): voi
   });
 }
 
-async function syncOpenRemoteFile(payload: { localPath: string }): Promise<{ ok: true; path: string }> {
+async function syncOpenRemoteFile(payload: {
+  localPath: string;
+}): Promise<{ ok: true; path: string }> {
   const watchState = openRemoteFileWatches.get(payload.localPath);
   if (!watchState) {
     throw new Error('Remote file sync session was not found.');
@@ -562,6 +572,11 @@ const methodHandlers = {
     dismissOpenRemoteFileSyncRequest(payload as any),
   'ssh.writeRemoteTextFile': (payload: unknown) => writeRemoteTextFile(payload as any),
   'ssh.uploadRemoteFile': (payload: unknown) => uploadRemoteFile(normalizeUploadPayload(payload)),
+  'ssh.startRemoteUpload': (payload: unknown) => startRemoteUpload(payload as any),
+  'ssh.appendRemoteUploadChunk': (payload: unknown) =>
+    appendRemoteUploadChunk(normalizeUploadPayload(payload) as any),
+  'ssh.finishRemoteUpload': (payload: unknown) => finishRemoteUpload(payload as any),
+  'ssh.cancelRemoteUpload': (payload: unknown) => cancelRemoteUpload(payload as any),
   'ssh.createRemoteDirectory': (payload: unknown) => createRemoteDirectory(payload as any),
   'ssh.renameRemoteEntry': (payload: unknown) => renameRemoteEntry(payload as any),
   'ssh.deleteRemoteEntry': (payload: unknown) => deleteRemoteEntry(payload as any),

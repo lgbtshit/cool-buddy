@@ -301,6 +301,19 @@ type AppApi = {
       relativePath?: string;
       data: Uint8Array;
     }) => Promise<{ ok: true; path: string }>;
+    startRemoteUpload: (payload: {
+      uploadId: string;
+      directory: string;
+      name: string;
+      relativePath?: string;
+    }) => Promise<{ ok: true; path: string }>;
+    appendRemoteUploadChunk: (payload: {
+      uploadId: string;
+      data: Uint8Array;
+      offset?: number;
+    }) => Promise<{ ok: true; path: string; bytesWritten: number; offset: number }>;
+    finishRemoteUpload: (payload: { uploadId: string }) => Promise<{ ok: true; path: string }>;
+    cancelRemoteUpload: (payload: { uploadId: string }) => Promise<{ ok: true }>;
     createRemoteDirectory: (payload: { path: string }) => Promise<{ ok: true; path: string }>;
     renameRemoteEntry: (payload: {
       oldPath: string;
@@ -309,6 +322,7 @@ type AppApi = {
     deleteRemoteEntry: (payload: {
       path: string;
       recursive?: boolean;
+      kind?: 'file' | 'directory' | 'symlink';
     }) => Promise<{ ok: true; path: string }>;
     getLatency: () => Promise<number | null>;
     getSystemMetrics: () => Promise<SystemMetrics | null>;

@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { messages, type MessageKey } from '../i18n';
 import { httpClient } from '../lib/http-client';
@@ -42,12 +42,43 @@ type RemoteDropPayload = {
   files: Array<File | RemoteUploadItem>;
 };
 
+type RemoteUploadBatchStatus = 'idle' | 'uploading' | 'success' | 'error' | 'canceled';
+
+type RemoteUploadBatch = {
+  id: number;
+  status: RemoteUploadBatchStatus;
+  totalFiles: number;
+  completedFiles: number;
+  totalBytes: number;
+  completedBytes: number;
+  currentFileName: string;
+  error: string;
+  startedAt: number;
+};
+
+type RemoteDeleteBatchStatus = 'deleting' | 'success' | 'error' | 'canceled';
+
+type RemoteDeleteBatch = {
+  id: number;
+  status: RemoteDeleteBatchStatus;
+  totalEntries: number;
+  completedEntries: number;
+  currentPath: string;
+  error: string;
+  startedAt: number;
+};
+
 const TAB_STORAGE_KEY = 'cool-buddy:open-tabs';
 const LOCALE_STORAGE_KEY = 'cool-buddy:locale';
 const AGENT_PROVIDER_DRAFTS_STORAGE_KEY = 'cool-buddy:agent-provider-drafts';
 const LIVE_METRICS_REFRESH_INTERVAL_MS = 2000;
 const FULL_METRICS_REFRESH_INTERVAL_MS = 15000;
 const LATENCY_REFRESH_INTERVAL_MS = 5000;
+const REMOTE_UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024;
+const REMOTE_UPLOAD_CONCURRENCY = 6;
+const REMOTE_UPLOAD_WRITE_PIPELINE = 4;
+const REMOTE_UPLOAD_PROGRESS_INTERVAL_MS = 100;
+const REMOTE_DELETE_CONCURRENCY = 8;
 
 const AGENT_PROVIDER_PRESETS: AgentProviderOption[] = [
   {
@@ -465,6 +496,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const explorerLoading = ref(false);
   const explorerBusy = ref(false);
   const explorerError = ref('');
+  const remoteUploadBatch = ref<RemoteUploadBatch | null>(null);
+  const remoteDeleteBatch = ref<RemoteDeleteBatch | null>(null);
   const remoteAppsLoading = ref(false);
   const remoteAppsError = ref('');
   const metricsLoading = ref(false);
@@ -477,6 +510,13 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   let metricsRequestPending = false;
   let liveMetricsRequestPending = false;
   let latencyRequestPending = false;
+  let uploadBatchId = 0;
+  let uploadBatchHideTimer: number | null = null;
+  let deleteBatchId = 0;
+  let deleteBatchHideTimer: number | null = null;
+  const canceledUploadBatchIds = new Set<number>();
+  const failedUploadBatchIds = new Set<number>();
+  const canceledDeleteBatchIds = new Set<number>();
   const sshAuthCapabilities = ref<SshAuthCapabilities>(createDefaultSshAuthCapabilities());
   const form = ref<ConnectionForm>(createDefaultForm());
   const sessionDraft = ref<SessionDraft>(createDefaultSessionDraft());
@@ -756,7 +796,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
   async function removeOtherTabs(sessionId: string) {
     const remainingTabIds = openTabIds.value.filter((id) => id === sessionId);
-    const isClosingActiveTab = activeSessionId.value !== sessionId && openTabIds.value.includes(activeSessionId.value);
+    const isClosingActiveTab =
+      activeSessionId.value !== sessionId && openTabIds.value.includes(activeSessionId.value);
 
     closeTabMenu();
 
@@ -1258,9 +1299,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
         ...payload
       });
 
-      sessions.value = sessions.value.map((item) =>
-        item.id === updated.id ? updated : item
-      );
+      sessions.value = sessions.value.map((item) => (item.id === updated.id ? updated : item));
       selectSession(updated, { openTab: openTabIds.value.includes(updated.id) });
       sessionModalOpen.value = false;
       editingSessionId.value = '';
@@ -1598,7 +1637,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
    */
   async function ensureRemoteDirectoryExists(
     targetPath: string,
-    createdDirectories: Set<string>
+    createdDirectories: Set<string>,
+    creatingDirectories = new Map<string, Promise<void>>()
   ): Promise<void> {
     if (!targetPath || targetPath === '.' || targetPath === '/') {
       return;
@@ -1609,23 +1649,165 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       return;
     }
 
+    const pendingCreation = creatingDirectories.get(normalizedPath);
+    if (pendingCreation) {
+      await pendingCreation;
+      createdDirectories.add(normalizedPath);
+      return;
+    }
+
     const lastSlashIndex = normalizedPath.lastIndexOf('/');
     const parentPath = lastSlashIndex <= 0 ? '/' : normalizedPath.slice(0, lastSlashIndex);
 
     if (parentPath && parentPath !== normalizedPath) {
-      await ensureRemoteDirectoryExists(parentPath, createdDirectories);
+      await ensureRemoteDirectoryExists(parentPath, createdDirectories, creatingDirectories);
     }
+
+    const createTask = window.api.ssh
+      .createRemoteDirectory({ path: normalizedPath })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message.toLowerCase() : '';
+        if (
+          !message.includes('failure') &&
+          !message.includes('already exists') &&
+          !message.includes('file exists') &&
+          !message.includes('code: 4')
+        ) {
+          throw error;
+        }
+      })
+      .then(() => {
+        createdDirectories.add(normalizedPath);
+      })
+      .finally(() => {
+        creatingDirectories.delete(normalizedPath);
+      });
+
+    creatingDirectories.set(normalizedPath, createTask);
 
     try {
-      await window.api.ssh.createRemoteDirectory({ path: normalizedPath });
+      await createTask;
     } catch (error) {
-      const message = error instanceof Error ? error.message.toLowerCase() : '';
-      if (!message.includes('failure')) {
-        throw error;
+      if (creatingDirectories.get(normalizedPath) === createTask) {
+        creatingDirectories.delete(normalizedPath);
       }
+      throw error;
+    }
+  }
+
+  async function waitForProgressPaint() {
+    await nextTick();
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  }
+
+  async function runConcurrent<T>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T, index: number) => Promise<void>
+  ) {
+    let nextIndex = 0;
+    let firstError: unknown = null;
+    const workerCount = Math.min(concurrency, items.length);
+
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (nextIndex < items.length && !firstError) {
+          const currentIndex = nextIndex;
+          nextIndex += 1;
+          try {
+            await worker(items[currentIndex], currentIndex);
+          } catch (error) {
+            firstError = error;
+          }
+        }
+      })
+    );
+
+    if (firstError) {
+      throw firstError;
+    }
+  }
+
+  function clearUploadBatchHideTimer() {
+    if (uploadBatchHideTimer) {
+      window.clearTimeout(uploadBatchHideTimer);
+      uploadBatchHideTimer = null;
+    }
+  }
+
+  function scheduleUploadBatchDismiss() {
+    clearUploadBatchHideTimer();
+    uploadBatchHideTimer = window.setTimeout(() => {
+      if (remoteUploadBatch.value?.status !== 'uploading') {
+        remoteUploadBatch.value = null;
+      }
+      uploadBatchHideTimer = null;
+    }, 3200);
+  }
+
+  function dismissRemoteUploadBatch() {
+    if (remoteUploadBatch.value?.status === 'uploading') {
+      return;
     }
 
-    createdDirectories.add(normalizedPath);
+    clearUploadBatchHideTimer();
+    remoteUploadBatch.value = null;
+  }
+
+  function cancelRemoteUploadBatch() {
+    const batch = remoteUploadBatch.value;
+    if (!batch || batch.status !== 'uploading') {
+      return;
+    }
+
+    canceledUploadBatchIds.add(batch.id);
+    remoteUploadBatch.value = {
+      ...batch,
+      status: 'canceled',
+      error: 'Upload canceled.'
+    };
+  }
+
+  function clearDeleteBatchHideTimer() {
+    if (deleteBatchHideTimer) {
+      window.clearTimeout(deleteBatchHideTimer);
+      deleteBatchHideTimer = null;
+    }
+  }
+
+  function scheduleDeleteBatchDismiss() {
+    clearDeleteBatchHideTimer();
+    deleteBatchHideTimer = window.setTimeout(() => {
+      if (remoteDeleteBatch.value?.status !== 'deleting') {
+        remoteDeleteBatch.value = null;
+      }
+      deleteBatchHideTimer = null;
+    }, 3200);
+  }
+
+  function dismissRemoteDeleteBatch() {
+    if (remoteDeleteBatch.value?.status === 'deleting') {
+      return;
+    }
+
+    clearDeleteBatchHideTimer();
+    remoteDeleteBatch.value = null;
+  }
+
+  function cancelRemoteDeleteBatch() {
+    const batch = remoteDeleteBatch.value;
+    if (!batch || batch.status !== 'deleting') {
+      return;
+    }
+
+    canceledDeleteBatchIds.add(batch.id);
+    remoteDeleteBatch.value = {
+      ...batch,
+      status: 'canceled',
+      error: 'Delete canceled.'
+    };
   }
 
   /**
@@ -1643,12 +1825,12 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
         remoteDirectory: remoteDirectory.value.path,
         fileCount: files.length
       });
+      const uploadDirectoryPath = remoteDirectory.value.path;
       const nextEntries = [...remoteDirectory.value.entries];
       const createdDirectories = new Set<string>([
-        remoteDirectory.value.path.endsWith('/')
-          ? remoteDirectory.value.path.slice(0, -1)
-          : remoteDirectory.value.path
+        uploadDirectoryPath.endsWith('/') ? uploadDirectoryPath.slice(0, -1) : uploadDirectoryPath
       ]);
+      const creatingDirectories = new Map<string, Promise<void>>();
       const normalizedFiles = files.map((item) => {
         if (item instanceof File) {
           return {
@@ -1662,48 +1844,139 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
           relativePath: item.relativePath?.trim() || item.file.webkitRelativePath || item.file.name
         };
       });
+      const totalBytes = normalizedFiles.reduce((total, item) => total + item.file.size, 0);
+      const currentBatchId = ++uploadBatchId;
+      let uploadedBytes = 0;
+      let lastProgressUpdateAt = 0;
+
+      clearUploadBatchHideTimer();
+      remoteUploadBatch.value = {
+        id: currentBatchId,
+        status: 'uploading',
+        totalFiles: normalizedFiles.length,
+        completedFiles: 0,
+        totalBytes,
+        completedBytes: 0,
+        currentFileName: normalizedFiles[0]?.file.name ?? '',
+        error: '',
+        startedAt: Date.now()
+      };
 
       console.log('[remote-upload] uploadRemoteFiles:normalized', {
-        files: normalizedFiles.map((item) => ({
-          name: item.file.name,
-          size: item.file.size,
-          relativePath: item.relativePath
-        }))
+        fileCount: normalizedFiles.length,
+        totalBytes,
+        concurrency: REMOTE_UPLOAD_CONCURRENCY
       });
 
-      for (const item of normalizedFiles) {
+      await waitForProgressPaint();
+
+      await runConcurrent(normalizedFiles, REMOTE_UPLOAD_CONCURRENCY, async (item, index) => {
+        if (canceledUploadBatchIds.has(currentBatchId)) {
+          throw new Error('Upload canceled.');
+        }
+
         const file = item.file;
         const relativePath = item.relativePath.replace(/\\/g, '/');
         const lastSlashIndex = relativePath.lastIndexOf('/');
-        console.log('[remote-upload] uploadRemoteFiles:item', {
-          name: file.name,
-          size: file.size,
-          relativePath
-        });
-
+        if (remoteUploadBatch.value?.id === currentBatchId) {
+          remoteUploadBatch.value = {
+            ...remoteUploadBatch.value,
+            currentFileName: relativePath || file.name
+          };
+        }
         if (lastSlashIndex > 0) {
-          const basePath = remoteDirectory.value.path.endsWith('/')
-            ? remoteDirectory.value.path.slice(0, -1)
-            : remoteDirectory.value.path;
+          const basePath = uploadDirectoryPath.endsWith('/')
+            ? uploadDirectoryPath.slice(0, -1)
+            : uploadDirectoryPath;
           const relativeDirectory = relativePath.slice(0, lastSlashIndex);
           await ensureRemoteDirectoryExists(
             `${basePath}/${relativeDirectory}`,
-            createdDirectories
+            createdDirectories,
+            creatingDirectories
           );
         }
 
-        const data = new Uint8Array(await file.arrayBuffer());
-        const result = await window.api.ssh.uploadRemoteFile({
-          directory: remoteDirectory.value.path,
+        const uploadId = `${Date.now().toString(36)}-${currentBatchId}-${index}`;
+        const result = await window.api.ssh.startRemoteUpload({
+          uploadId,
+          directory: uploadDirectoryPath,
           name: file.name,
-          relativePath,
-          data
-        });
-        console.log('[remote-upload] uploadRemoteFiles:uploaded', {
-          relativePath,
-          remotePath: result.path
+          relativePath
         });
 
+        try {
+          const reader = file.stream().getReader();
+          const pendingWrites: Promise<void>[] = [];
+          let nextRemoteOffset = 0;
+          const flushOldestWrite = async () => {
+            const pendingWrite = pendingWrites.shift();
+            if (pendingWrite) {
+              await pendingWrite;
+            }
+          };
+
+          while (true) {
+            if (canceledUploadBatchIds.has(currentBatchId)) {
+              throw new Error('Upload canceled.');
+            }
+
+            const { done, value } = await reader.read();
+            if (done) {
+              break;
+            }
+
+            for (let offset = 0; offset < value.byteLength; offset += REMOTE_UPLOAD_CHUNK_SIZE) {
+              if (canceledUploadBatchIds.has(currentBatchId)) {
+                throw new Error('Upload canceled.');
+              }
+
+              const chunk = value.slice(offset, offset + REMOTE_UPLOAD_CHUNK_SIZE);
+              const chunkOffset = nextRemoteOffset;
+              nextRemoteOffset += chunk.byteLength;
+              pendingWrites.push(
+                window.api.ssh
+                  .appendRemoteUploadChunk({
+                    uploadId,
+                    data: chunk,
+                    offset: chunkOffset
+                  })
+                  .then((chunkResult) => {
+                    uploadedBytes += chunkResult.bytesWritten;
+
+                    const now = window.performance.now();
+                    const shouldUpdateProgress =
+                      now - lastProgressUpdateAt >= REMOTE_UPLOAD_PROGRESS_INTERVAL_MS ||
+                      uploadedBytes >= totalBytes;
+
+                    if (shouldUpdateProgress && remoteUploadBatch.value?.id === currentBatchId) {
+                      lastProgressUpdateAt = now;
+                      remoteUploadBatch.value = {
+                        ...remoteUploadBatch.value,
+                        completedBytes: Math.min(totalBytes, uploadedBytes)
+                      };
+                    }
+                  })
+              );
+
+              if (pendingWrites.length >= REMOTE_UPLOAD_WRITE_PIPELINE) {
+                await flushOldestWrite();
+              }
+            }
+          }
+
+          while (pendingWrites.length > 0) {
+            await flushOldestWrite();
+          }
+
+          await window.api.ssh.finishRemoteUpload({ uploadId });
+        } catch (error) {
+          if (!canceledUploadBatchIds.has(currentBatchId)) {
+            failedUploadBatchIds.add(currentBatchId);
+          }
+          canceledUploadBatchIds.add(currentBatchId);
+          await window.api.ssh.cancelRemoteUpload({ uploadId }).catch(() => undefined);
+          throw error;
+        }
         if (lastSlashIndex <= 0) {
           const nextEntry: RemoteEntry = {
             name: file.name,
@@ -1719,6 +1992,25 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
             nextEntries.push(nextEntry);
           }
         }
+
+        if (remoteUploadBatch.value?.id === currentBatchId) {
+          remoteUploadBatch.value = {
+            ...remoteUploadBatch.value,
+            completedFiles: remoteUploadBatch.value.completedFiles + 1,
+            completedBytes: Math.min(totalBytes, uploadedBytes)
+          };
+        }
+      });
+
+      if (remoteUploadBatch.value?.id === currentBatchId) {
+        remoteUploadBatch.value = {
+          ...remoteUploadBatch.value,
+          status: 'success',
+          completedFiles: normalizedFiles.length,
+          completedBytes: totalBytes,
+          currentFileName: ''
+        };
+        scheduleUploadBatchDismiss();
       }
 
       patchRemoteDirectoryEntries(() => nextEntries);
@@ -1726,6 +2018,17 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     } catch (error) {
       console.error('[remote-upload] uploadRemoteFiles:failed', error);
       explorerError.value = error instanceof Error ? error.message : 'Failed to upload files.';
+      if (remoteUploadBatch.value?.status === 'uploading') {
+        remoteUploadBatch.value = {
+          ...remoteUploadBatch.value,
+          status: failedUploadBatchIds.has(remoteUploadBatch.value.id)
+            ? 'error'
+            : canceledUploadBatchIds.has(remoteUploadBatch.value.id)
+              ? 'canceled'
+              : 'error',
+          error: explorerError.value
+        };
+      }
     } finally {
       explorerBusy.value = false;
     }
@@ -1752,9 +2055,16 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
 
     console.log('[remote-upload] uploadRemoteItems:start', {
       remoteDirectory: remoteDirectory.value.path,
-      directories: normalizedDirectories,
+      directoryCount: normalizedDirectories.length,
       fileCount: payload.files.length
     });
+
+    if (payload.files.length > 0) {
+      await uploadRemoteFiles(payload.files);
+      if (remoteUploadBatch.value?.status !== 'success') {
+        return;
+      }
+    }
 
     if (normalizedDirectories.length > 0) {
       explorerBusy.value = true;
@@ -1765,14 +2075,13 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
           ? remoteDirectory.value.path.slice(0, -1)
           : remoteDirectory.value.path;
         const createdDirectories = new Set<string>([basePath]);
+        const creatingDirectories = new Map<string, Promise<void>>();
 
         for (const relativeDirectory of normalizedDirectories) {
-          console.log('[remote-upload] uploadRemoteItems:create-directory', {
-            relativeDirectory
-          });
           await ensureRemoteDirectoryExists(
             `${basePath}/${relativeDirectory}`,
-            createdDirectories
+            createdDirectories,
+            creatingDirectories
           );
         }
       } catch (error) {
@@ -1784,11 +2093,6 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
       } finally {
         explorerBusy.value = false;
       }
-    }
-
-    if (payload.files.length > 0) {
-      await uploadRemoteFiles(payload.files);
-      return;
     }
 
     void loadRemoteDirectory(remoteDirectory.value.path, { silent: true });
@@ -1892,26 +2196,110 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     }
   }
 
-  async function deleteRemoteEntry(path: string) {
-    if (!remoteDirectory.value) return;
+  async function deleteRemoteEntries(paths: string[]) {
+    if (!remoteDirectory.value || !paths.length) return;
 
     explorerBusy.value = true;
     explorerError.value = '';
+    const entryKindByPath = new Map(
+      remoteDirectory.value.entries.map((entry) => [entry.path, entry.kind])
+    );
+    const currentBatchId = ++deleteBatchId;
+    clearDeleteBatchHideTimer();
+    remoteDeleteBatch.value = {
+      id: currentBatchId,
+      status: 'deleting',
+      totalEntries: paths.length,
+      completedEntries: 0,
+      currentPath: paths[0],
+      error: '',
+      startedAt: Date.now()
+    };
+
+    const deletedPaths: string[] = [];
     try {
-      await window.api.ssh.deleteRemoteEntry({ path, recursive: true });
+      await waitForProgressPaint();
 
-      patchRemoteDirectoryEntries((entries) => entries.filter((entry) => entry.path !== path));
+      await runConcurrent(paths, REMOTE_DELETE_CONCURRENCY, async (path) => {
+        if (canceledDeleteBatchIds.has(currentBatchId)) {
+          throw new Error('Delete canceled.');
+        }
 
-      if (remotePreview.value?.path === path || remotePreview.value?.path.startsWith(`${path}/`)) {
+        if (remoteDeleteBatch.value?.id === currentBatchId) {
+          remoteDeleteBatch.value = {
+            ...remoteDeleteBatch.value,
+            currentPath: path
+          };
+        }
+
+        const deleteStartedAt = window.performance.now();
+        await window.api.ssh.deleteRemoteEntry({
+          path,
+          recursive: true,
+          kind: entryKindByPath.get(path)
+        });
+        console.log('[remote-delete] renderer:deleted', {
+          path,
+          kind: entryKindByPath.get(path) ?? 'unknown',
+          durationMs: Math.round(window.performance.now() - deleteStartedAt)
+        });
+        deletedPaths.push(path);
+
+        if (remoteDeleteBatch.value?.id === currentBatchId) {
+          remoteDeleteBatch.value = {
+            ...remoteDeleteBatch.value,
+            completedEntries: remoteDeleteBatch.value.completedEntries + 1
+          };
+        }
+      });
+
+      patchRemoteDirectoryEntries((entries) =>
+        entries.filter((entry) => !deletedPaths.includes(entry.path))
+      );
+
+      if (
+        remotePreview.value &&
+        deletedPaths.some(
+          (path) =>
+            remotePreview.value?.path === path || remotePreview.value?.path.startsWith(`${path}/`)
+        )
+      ) {
         remotePreview.value = null;
+      }
+
+      if (remoteDeleteBatch.value?.id === currentBatchId) {
+        remoteDeleteBatch.value = {
+          ...remoteDeleteBatch.value,
+          status: 'success',
+          completedEntries: paths.length,
+          currentPath: ''
+        };
+        scheduleDeleteBatchDismiss();
       }
 
       void loadRemoteDirectory(remoteDirectory.value.path, { silent: true });
     } catch (error) {
       explorerError.value = error instanceof Error ? error.message : 'Failed to delete entry.';
+      if (deletedPaths.length) {
+        patchRemoteDirectoryEntries((entries) =>
+          entries.filter((entry) => !deletedPaths.includes(entry.path))
+        );
+        void loadRemoteDirectory(remoteDirectory.value.path, { silent: true });
+      }
+      if (remoteDeleteBatch.value?.id === currentBatchId) {
+        remoteDeleteBatch.value = {
+          ...remoteDeleteBatch.value,
+          status: canceledDeleteBatchIds.has(currentBatchId) ? 'canceled' : 'error',
+          error: explorerError.value
+        };
+      }
     } finally {
       explorerBusy.value = false;
     }
+  }
+
+  async function deleteRemoteEntry(path: string) {
+    await deleteRemoteEntries([path]);
   }
 
   async function toggleHiddenFiles() {
@@ -2117,6 +2505,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     applyAgentProviderCode,
     canSaveSession,
     canSaveAgentSettings,
+    cancelRemoteDeleteBatch,
+    cancelRemoteUploadBatch,
     chooseSessionDraftPrivateKey,
     hasAgentProviderConfigured,
     ingestHarmlessAgentEvent,
@@ -2126,6 +2516,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     connect,
     connectToSession,
     connectionLabel,
+    dismissRemoteDeleteBatch,
+    dismissRemoteUploadBatch,
     disconnect,
     explorerBusy,
     explorerError,
@@ -2134,6 +2526,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     form,
     createRemoteFile,
     createRemoteDirectory,
+    deleteRemoteEntries,
     deleteRemoteEntry,
     deleteSession,
     addLogTailStream,
@@ -2174,6 +2567,8 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     removeLogTailStream,
     resolveHarmlessAgentApproval,
     renameRemoteEntry,
+    remoteDeleteBatch,
+    remoteUploadBatch,
     runHarmlessAgentPrompt,
     saveSession,
     saveAgentSettings,

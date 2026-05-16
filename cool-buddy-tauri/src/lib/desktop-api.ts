@@ -9,9 +9,7 @@ type SessionAuthMethod = 'password' | 'systemKey';
 type SshStatusPayload = Awaited<ReturnType<Window['api']['ssh']['getStatusSnapshot']>>;
 type SshLogStatusPayload = Parameters<Parameters<Window['api']['ssh']['onLogStatus']>[0]>[0];
 type SshLogDataPayload = Parameters<Parameters<Window['api']['ssh']['onLogData']>[0]>[0];
-type AgentModelOption = Awaited<
-  ReturnType<Window['api']['agentSettings']['listModels']>
->[number];
+type AgentModelOption = Awaited<ReturnType<Window['api']['agentSettings']['listModels']>>[number];
 type AgentStateSnapshot = Awaited<ReturnType<Window['api']['harmlessAgent']['getState']>>;
 type AgentWhitelistItem = Awaited<
   ReturnType<Window['api']['harmlessAgent']['listWhitelist']>
@@ -174,12 +172,13 @@ function ensureBackendEventListeners(): void {
     emitRemoteFileSyncRequest(event.payload);
   });
 
-  void listen<Parameters<Window['api']['harmlessAgent']['onEvent']>[0] extends (e: infer E) => void ? E : never>(
-    'harmless-agent:event',
-    (event) => {
-      emitAgentEvent(event.payload);
-    }
-  );
+  void listen<
+    Parameters<Window['api']['harmlessAgent']['onEvent']>[0] extends (e: infer E) => void
+      ? E
+      : never
+  >('harmless-agent:event', (event) => {
+    emitAgentEvent(event.payload);
+  });
 
   void listen<{ message?: string }>('backend:error', (event) => {
     if (event.payload?.message) {
@@ -219,7 +218,8 @@ const api: Window['api'] = {
     saveProvider: (payload) => invokeCommand('agent_settings_save_provider', { payload })
   },
   harmlessAgent: {
-    getState: (sessionId: string) => invokeBackend<AgentStateSnapshot>('harmlessAgent.getState', sessionId),
+    getState: (sessionId: string) =>
+      invokeBackend<AgentStateSnapshot>('harmlessAgent.getState', sessionId),
     run: (payload) => invokeBackend<AgentStateSnapshot>('harmlessAgent.run', payload),
     resolveApproval: (payload) =>
       invokeBackend<AgentStateSnapshot>('harmlessAgent.resolveApproval', payload),
@@ -301,6 +301,18 @@ const api: Window['api'] = {
     },
     async uploadRemoteFile(payload) {
       return await invokeBackend('ssh.uploadRemoteFile', payload);
+    },
+    async startRemoteUpload(payload) {
+      return await invokeBackend('ssh.startRemoteUpload', payload);
+    },
+    async appendRemoteUploadChunk(payload) {
+      return await invokeBackend('ssh.appendRemoteUploadChunk', payload);
+    },
+    async finishRemoteUpload(payload) {
+      return await invokeBackend('ssh.finishRemoteUpload', payload);
+    },
+    async cancelRemoteUpload(payload) {
+      return await invokeBackend('ssh.cancelRemoteUpload', payload);
     },
     async createRemoteDirectory(payload) {
       return await invokeBackend('ssh.createRemoteDirectory', payload);

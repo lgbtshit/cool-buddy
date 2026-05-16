@@ -17,10 +17,10 @@ function isInternalLogWindowUrl(url: string): boolean {
 
 export function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
-    width: 1620,
-    height: 1080,
-    minWidth: 1620,
-    minHeight: 1080,
+    width: 1520,
+    height: 980,
+    minWidth: 1520,
+    minHeight: 980,
     show: false,
     autoHideMenuBar: true,
     icon,

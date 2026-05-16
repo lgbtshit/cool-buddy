@@ -293,6 +293,19 @@ export type RemoteUploadPayload = {
   data: Uint8Array;
 };
 
+export type RemoteUploadStartPayload = {
+  uploadId: string;
+  directory: string;
+  name: string;
+  relativePath?: string;
+};
+
+export type RemoteUploadChunkPayload = {
+  uploadId: string;
+  data: Uint8Array;
+  offset?: number;
+};
+
 export type RemoteMkdirPayload = {
   path: string;
 };
@@ -305,6 +318,7 @@ export type RemoteRenamePayload = {
 export type RemoteDeletePayload = {
   path: string;
   recursive?: boolean;
+  kind?: RemoteEntry['kind'];
 };
 
 export type SystemMetrics = {

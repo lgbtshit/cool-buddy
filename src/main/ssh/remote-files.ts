@@ -2,7 +2,7 @@ import { basename, join, posix } from 'path';
 import { mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import type { FileEntry } from 'ssh2';
-import { ensureSftp } from './ssh-runtime';
+import { ensureSftp, sshExec } from './ssh-runtime';
 import type {
   RemoteDeletePayload,
   RemoteEntry,
@@ -14,8 +14,18 @@ import type {
   RemoteReadPayload,
   RemoteWriteTextPayload,
   RemoteRenamePayload,
-  RemoteUploadPayload
+  RemoteUploadChunkPayload,
+  RemoteUploadPayload,
+  RemoteUploadStartPayload
 } from '../shared/types';
+
+type RemoteUploadSession = {
+  handle: Buffer;
+  path: string;
+  offset: number;
+};
+
+const remoteUploadSessions = new Map<string, RemoteUploadSession>();
 
 /**
  * 标准化远程路径，统一斜杠并兜底空值。
@@ -99,6 +109,38 @@ export function getEntryKind(entry: FileEntry): RemoteEntry['kind'] {
  * @param pathname 远程目录路径
  * @return Promise<FileEntry[]> 目录项列表
  */
+function isSftpDirectory(stats: unknown): boolean {
+  if (typeof (stats as { isDirectory?: unknown })?.isDirectory === 'function') {
+    return (stats as { isDirectory: () => boolean }).isDirectory();
+  }
+
+  const mode = (stats as { mode?: unknown })?.mode;
+  return typeof mode === 'number' && (mode & 0o170000) === 0o040000;
+}
+
+function quoteShellPath(pathname: string): string {
+  return `'${pathname.replace(/'/g, `'\\''`)}'`;
+}
+
+async function removeRemoteFileFast(pathname: string): Promise<void> {
+  try {
+    await sshExec(`rm -f -- ${quoteShellPath(pathname)}`);
+  } catch {
+    await sftpUnlink(pathname);
+  }
+}
+
+function assertSafeRemoteDeleteTarget(pathname: string) {
+  if (!pathname || pathname === '.' || pathname === '/' || pathname === '~') {
+    throw new Error(`Refusing to delete unsafe remote path: ${pathname || '(empty)'}`);
+  }
+}
+
+async function removeRemoteDirectoryFast(pathname: string, recursive: boolean): Promise<void> {
+  assertSafeRemoteDeleteTarget(pathname);
+  await sshExec(`${recursive ? 'rm -rf' : 'rmdir'} -- ${quoteShellPath(pathname)}`);
+}
+
 export function sftpReaddir(pathname: string): Promise<FileEntry[]> {
   return new Promise((resolve, reject) => {
     ensureSftp().readdir(pathname, (error, list) => {
@@ -117,6 +159,19 @@ export function sftpReaddir(pathname: string): Promise<FileEntry[]> {
  * @param pathname 远程路径
  * @return Promise<string> 远程真实路径
  */
+export function sftpLstat(pathname: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    ensureSftp().lstat(pathname, (error, stats) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(stats);
+    });
+  });
+}
+
 export function sftpRealpath(pathname: string): Promise<string> {
   return new Promise((resolve, reject) => {
     ensureSftp().realpath(pathname, (error, resolvedPath) => {
@@ -157,6 +212,50 @@ export function sftpReadFile(pathname: string): Promise<Buffer> {
 export function sftpWriteFile(pathname: string, data: Uint8Array): Promise<void> {
   return new Promise((resolve, reject) => {
     ensureSftp().writeFile(pathname, Buffer.from(data), (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
+function sftpOpen(pathname: string, flags: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    ensureSftp().open(
+      pathname,
+      flags as Parameters<ReturnType<typeof ensureSftp>['open']>[1],
+      (error, handle) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(handle);
+      }
+    );
+  });
+}
+
+function sftpWriteHandle(handle: Buffer, data: Uint8Array, position: number): Promise<number> {
+  const buffer = Buffer.from(data);
+  return new Promise((resolve, reject) => {
+    ensureSftp().write(handle, buffer, 0, buffer.length, position, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(buffer.length);
+    });
+  });
+}
+
+function sftpClose(handle: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    ensureSftp().close(handle, (error) => {
       if (error) {
         reject(error);
         return;
@@ -246,13 +345,34 @@ export function sftpRmdir(pathname: string): Promise<void> {
  * @param recursive 是否递归删除目录
  * @return Promise<void> 无返回
  */
-export async function removeRemoteEntry(pathname: string, recursive = false): Promise<void> {
-  const entries = await sftpReaddir(pathname).catch(() => null);
-  if (!entries) {
-    await sftpUnlink(pathname);
+export async function removeRemoteEntry(
+  pathname: string,
+  recursive = false,
+  knownKind?: RemoteEntry['kind']
+): Promise<void> {
+  if (knownKind === 'file' || knownKind === 'symlink') {
+    await removeRemoteFileFast(pathname);
     return;
   }
 
+  const isDirectory =
+    knownKind === 'directory' || (!knownKind && isSftpDirectory(await sftpLstat(pathname)));
+
+  if (!isDirectory) {
+    await removeRemoteFileFast(pathname);
+    return;
+  }
+
+  if (recursive) {
+    try {
+      await removeRemoteDirectoryFast(pathname, true);
+      return;
+    } catch {
+      // Fall back to SFTP recursion when shell deletion is unavailable.
+    }
+  }
+
+  const entries = await sftpReaddir(pathname);
   if (entries.length > 0 && !recursive) {
     throw new Error('Directory is not empty.');
   }
@@ -261,7 +381,7 @@ export async function removeRemoteEntry(pathname: string, recursive = false): Pr
     const childPath = joinRemotePath(pathname, entry.filename);
     const kind = getEntryKind(entry);
     if (kind === 'directory') {
-      await removeRemoteEntry(childPath, true);
+      await removeRemoteEntry(childPath, true, 'directory');
     } else {
       await sftpUnlink(childPath);
     }
@@ -454,19 +574,67 @@ export async function writeRemoteTextFile(payload: RemoteWriteTextPayload) {
  * @return Promise<{ ok: true; path: string }> 上传结果
  */
 export async function uploadRemoteFile(payload: RemoteUploadPayload) {
-  let remotePath = '';
-
-  if (payload.relativePath && payload.relativePath.trim()) {
-    remotePath = joinRemotePath(
-      normalizeRemotePath(payload.directory),
-      normalizeRemotePath(payload.relativePath.trim())
-    );
-  } else {
-    remotePath = joinRemotePath(normalizeRemotePath(payload.directory), basename(payload.name));
-  }
+  const remotePath = getRemoteUploadPath(payload);
 
   await sftpWriteFile(remotePath, payload.data);
   return { ok: true as const, path: remotePath };
+}
+
+function getRemoteUploadPath(payload: { directory: string; name: string; relativePath?: string }) {
+  if (payload.relativePath && payload.relativePath.trim()) {
+    return joinRemotePath(
+      normalizeRemotePath(payload.directory),
+      normalizeRemotePath(payload.relativePath.trim())
+    );
+  }
+
+  return joinRemotePath(normalizeRemotePath(payload.directory), basename(payload.name));
+}
+
+export async function startRemoteUpload(payload: RemoteUploadStartPayload) {
+  const remotePath = getRemoteUploadPath(payload);
+  const handle = await sftpOpen(remotePath, 'w');
+  remoteUploadSessions.set(payload.uploadId, {
+    handle,
+    path: remotePath,
+    offset: 0
+  });
+  return { ok: true as const, path: remotePath };
+}
+
+export async function appendRemoteUploadChunk(payload: RemoteUploadChunkPayload) {
+  const session = remoteUploadSessions.get(payload.uploadId);
+  if (!session) {
+    throw new Error('Upload session is no longer active.');
+  }
+
+  const position = Number.isFinite(payload.offset) ? Number(payload.offset) : session.offset;
+  const bytesWritten = await sftpWriteHandle(session.handle, payload.data, position);
+  session.offset = Math.max(session.offset, position + bytesWritten);
+  return { ok: true as const, path: session.path, bytesWritten, offset: session.offset };
+}
+
+export async function finishRemoteUpload(payload: { uploadId: string }) {
+  const session = remoteUploadSessions.get(payload.uploadId);
+  if (!session) {
+    throw new Error('Upload session is no longer active.');
+  }
+
+  remoteUploadSessions.delete(payload.uploadId);
+  await sftpClose(session.handle);
+  return { ok: true as const, path: session.path };
+}
+
+export async function cancelRemoteUpload(payload: { uploadId: string }) {
+  const session = remoteUploadSessions.get(payload.uploadId);
+  if (!session) {
+    return { ok: true as const };
+  }
+
+  remoteUploadSessions.delete(payload.uploadId);
+  await sftpClose(session.handle).catch(() => undefined);
+  await sftpUnlink(session.path).catch(() => undefined);
+  return { ok: true as const };
 }
 
 /**
@@ -476,7 +644,19 @@ export async function uploadRemoteFile(payload: RemoteUploadPayload) {
  */
 export async function createRemoteDirectory(payload: RemoteMkdirPayload) {
   const targetPath = normalizeRemotePath(payload.path);
-  await sftpMkdir(targetPath);
+  try {
+    await sftpMkdir(targetPath);
+  } catch (error) {
+    try {
+      if (isSftpDirectory(await sftpLstat(targetPath))) {
+        return { ok: true as const, path: targetPath };
+      }
+    } catch {
+      // Preserve the original mkdir failure when the path cannot be verified.
+    }
+
+    throw error;
+  }
   return { ok: true as const, path: targetPath };
 }
 
@@ -499,6 +679,12 @@ export async function renameRemoteEntry(payload: RemoteRenamePayload) {
  */
 export async function deleteRemoteEntry(payload: RemoteDeletePayload) {
   const targetPath = normalizeRemotePath(payload.path);
-  await removeRemoteEntry(targetPath, payload.recursive ?? true);
+  const startedAt = performance.now();
+  await removeRemoteEntry(targetPath, payload.recursive ?? true, payload.kind);
+  console.log('[remote-delete] backend:deleted', {
+    path: targetPath,
+    kind: payload.kind ?? 'unknown',
+    durationMs: Math.round(performance.now() - startedAt)
+  });
   return { ok: true as const, path: targetPath };
 }

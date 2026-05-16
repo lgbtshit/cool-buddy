@@ -4,6 +4,7 @@ import type { InputInstance } from 'element-plus';
 import 'element-plus/es/components/input/style/css';
 import {
   ArrowUp,
+  CheckCircle2,
   Eye,
   EyeOff,
   FolderPlus,
@@ -11,6 +12,8 @@ import {
   RefreshCw,
   Trash2,
   Upload,
+  X,
+  XCircle,
   FileText,
   FolderOpen
 } from 'lucide-vue-next';
@@ -42,7 +45,9 @@ const {
   explorerLoading,
   isConnected,
   remoteDirectory,
+  remoteDeleteBatch,
   remotePreview,
+  remoteUploadBatch,
   showHiddenFiles
 } = storeToRefs(store);
 const { t } = useAppCopy();
@@ -90,6 +95,96 @@ const visibleEntries = computed(() => {
 
   return entries.filter((entry) => !entry.name.startsWith('.'));
 });
+
+const uploadProgressPercent = computed(() => {
+  const batch = remoteUploadBatch.value;
+  if (!batch) return 0;
+  if (batch.status === 'success') return 100;
+
+  const byteProgress = batch.totalBytes > 0 ? (batch.completedBytes / batch.totalBytes) * 100 : 0;
+  const fileProgress = batch.totalFiles > 0 ? (batch.completedFiles / batch.totalFiles) * 100 : 0;
+
+  return Math.min(100, Math.max(0, Math.round(byteProgress || fileProgress)));
+});
+
+const uploadProgressLabel = computed(() => {
+  const batch = remoteUploadBatch.value;
+  if (!batch) return '';
+  if (batch.status === 'success') return '上传完成';
+  if (batch.status === 'error') return '上传失败';
+  if (batch.status === 'canceled') return '上传已取消';
+  return batch.totalFiles > 1 ? '批量上传中' : '上传中';
+});
+
+const transferClockMs = ref(Date.now());
+let transferClockTimer: number | null = null;
+
+const uploadElapsedMs = computed(() => {
+  const batch = remoteUploadBatch.value;
+  if (!batch) return 0;
+  return Math.max(0, transferClockMs.value - batch.startedAt);
+});
+
+const uploadSpeedBytesPerSecond = computed(() => {
+  const elapsedSeconds = uploadElapsedMs.value / 1000;
+  if (elapsedSeconds <= 0) return 0;
+  return remoteUploadBatch.value ? remoteUploadBatch.value.completedBytes / elapsedSeconds : 0;
+});
+
+const uploadElapsedLabel = computed(() => formatDuration(uploadElapsedMs.value));
+
+const uploadSpeedLabel = computed(() => {
+  const speed = uploadSpeedBytesPerSecond.value;
+  return speed > 0 ? `${formatUploadSize(speed)}/s` : '--/s';
+});
+
+const uploadEtaLabel = computed(() => {
+  const batch = remoteUploadBatch.value;
+  const speed = uploadSpeedBytesPerSecond.value;
+  if (!batch || batch.status !== 'uploading') return '';
+  if (speed <= 0 || batch.totalBytes <= 0) return '计算中';
+
+  const remainingMs = ((batch.totalBytes - batch.completedBytes) / speed) * 1000;
+  return formatDuration(Math.max(0, remainingMs));
+});
+
+const deleteProgressPercent = computed(() => {
+  const batch = remoteDeleteBatch.value;
+  if (!batch) return 0;
+  if (batch.status === 'success') return 100;
+  return batch.totalEntries > 0
+    ? Math.min(100, Math.max(0, Math.round((batch.completedEntries / batch.totalEntries) * 100)))
+    : 0;
+});
+
+const deleteProgressLabel = computed(() => {
+  const batch = remoteDeleteBatch.value;
+  if (!batch) return '';
+  if (batch.status === 'success') return '删除完成';
+  if (batch.status === 'error') return '删除失败';
+  if (batch.status === 'canceled') return '删除已取消';
+  return batch.totalEntries > 1 ? '批量删除中' : '删除中';
+});
+
+function formatUploadSize(bytes: number) {
+  if (bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** unitIndex;
+  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function formatDuration(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes <= 0) {
+    return `${seconds}s`;
+  }
+
+  return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+}
 
 watch(
   () => remoteDirectory.value?.path,
@@ -489,12 +584,9 @@ async function submitDeleteEntries() {
     return;
   }
 
-  for (const path of targetPaths) {
-    await store.deleteRemoteEntry(path);
-  }
-
   clearEntrySelection();
   closeDeleteDialog();
+  await store.deleteRemoteEntries(targetPaths);
 }
 
 async function submitPath() {
@@ -654,18 +746,25 @@ function handleWindowKeyDown(event: KeyboardEvent) {
   event.preventDefault();
   const label =
     selectedEntryPaths.value.length === 1
-      ? visibleEntries.value.find((entry) => entry.path === selectedEntryPaths.value[0])?.name ??
-        selectedEntryPaths.value[0]
+      ? (visibleEntries.value.find((entry) => entry.path === selectedEntryPaths.value[0])?.name ??
+        selectedEntryPaths.value[0])
       : `已选中的 ${selectedEntryPaths.value.length} 个项目`;
   openDeleteDialog(selectedEntryPaths.value, label);
 }
 
 onMounted(() => {
+  transferClockTimer = window.setInterval(() => {
+    transferClockMs.value = Date.now();
+  }, 500);
   window.addEventListener('pointerdown', handleDocumentPointerDown);
   window.addEventListener('keydown', handleWindowKeyDown);
 });
 
 onBeforeUnmount(() => {
+  if (transferClockTimer !== null) {
+    window.clearInterval(transferClockTimer);
+    transferClockTimer = null;
+  }
   window.removeEventListener('pointerdown', handleDocumentPointerDown);
   window.removeEventListener('keydown', handleWindowKeyDown);
 });
@@ -829,6 +928,132 @@ onBeforeUnmount(() => {
   </div>
 
   <Teleport to="body">
+    <section
+      v-if="remoteUploadBatch"
+      class="remote-upload-toast"
+      :class="`is-${remoteUploadBatch.status}`"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="remote-upload-icon" aria-hidden="true">
+        <CheckCircle2 v-if="remoteUploadBatch.status === 'success'" :size="18" />
+        <XCircle v-else-if="remoteUploadBatch.status === 'error'" :size="18" />
+        <Upload v-else :size="18" />
+      </div>
+
+      <div class="remote-upload-main">
+        <div class="remote-upload-header">
+          <div class="remote-upload-title-group">
+            <strong>{{ uploadProgressLabel }}</strong>
+            <span>
+              {{ remoteUploadBatch.completedFiles }}/{{ remoteUploadBatch.totalFiles }} files
+            </span>
+          </div>
+          <button
+            type="button"
+            class="remote-upload-close"
+            :aria-label="remoteUploadBatch.status === 'uploading' ? '取消上传' : '关闭上传进度'"
+            @click="
+              remoteUploadBatch.status === 'uploading'
+                ? store.cancelRemoteUploadBatch()
+                : store.dismissRemoteUploadBatch()
+            "
+          >
+            <X :size="14" />
+          </button>
+        </div>
+
+        <div class="remote-upload-track" aria-hidden="true">
+          <div class="remote-upload-bar" :style="{ width: `${uploadProgressPercent}%` }"></div>
+        </div>
+
+        <div class="remote-upload-meta">
+          <span v-if="remoteUploadBatch.status === 'uploading'" class="remote-upload-current">
+            {{ remoteUploadBatch.currentFileName }}
+          </span>
+          <span
+            v-else-if="
+              remoteUploadBatch.status === 'error' || remoteUploadBatch.status === 'canceled'
+            "
+            class="remote-upload-error"
+          >
+            {{ remoteUploadBatch.error }}
+          </span>
+          <span v-else>所有文件已上传到当前远程目录</span>
+          <span class="remote-upload-size">
+            {{ formatUploadSize(remoteUploadBatch.completedBytes) }} /
+            {{ formatUploadSize(remoteUploadBatch.totalBytes) }}
+          </span>
+        </div>
+
+        <div class="remote-upload-stats" aria-label="上传时间和速度">
+          <span>已用 {{ uploadElapsedLabel }}</span>
+          <span>{{ uploadSpeedLabel }}</span>
+          <span v-if="remoteUploadBatch.status === 'uploading'">剩余 {{ uploadEtaLabel }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section
+      v-if="remoteDeleteBatch"
+      class="remote-upload-toast remote-delete-toast"
+      :class="`is-${remoteDeleteBatch.status}`"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="remote-upload-icon" aria-hidden="true">
+        <CheckCircle2 v-if="remoteDeleteBatch.status === 'success'" :size="18" />
+        <XCircle v-else-if="remoteDeleteBatch.status === 'error'" :size="18" />
+        <Trash2 v-else :size="18" />
+      </div>
+
+      <div class="remote-upload-main">
+        <div class="remote-upload-header">
+          <div class="remote-upload-title-group">
+            <strong>{{ deleteProgressLabel }}</strong>
+            <span>
+              {{ remoteDeleteBatch.completedEntries }}/{{ remoteDeleteBatch.totalEntries }} items
+            </span>
+          </div>
+          <button
+            type="button"
+            class="remote-upload-close"
+            :aria-label="remoteDeleteBatch.status === 'deleting' ? '取消删除' : '关闭删除进度'"
+            @click="
+              remoteDeleteBatch.status === 'deleting'
+                ? store.cancelRemoteDeleteBatch()
+                : store.dismissRemoteDeleteBatch()
+            "
+          >
+            <X :size="14" />
+          </button>
+        </div>
+
+        <div class="remote-upload-track" aria-hidden="true">
+          <div
+            class="remote-upload-bar"
+            :class="{ 'is-indeterminate': remoteDeleteBatch.status === 'deleting' }"
+            :style="{ width: `${deleteProgressPercent}%` }"
+          ></div>
+        </div>
+
+        <div class="remote-upload-meta">
+          <span v-if="remoteDeleteBatch.status === 'deleting'" class="remote-upload-current">
+            {{ remoteDeleteBatch.currentPath }}
+          </span>
+          <span
+            v-else-if="
+              remoteDeleteBatch.status === 'error' || remoteDeleteBatch.status === 'canceled'
+            "
+            class="remote-upload-error"
+          >
+            {{ remoteDeleteBatch.error }}
+          </span>
+          <span v-else>选中的远程项目已删除</span>
+        </div>
+      </div>
+    </section>
+
     <div
       v-if="contextMenuOpen"
       ref="contextMenuRef"
@@ -856,7 +1081,9 @@ onBeforeUnmount(() => {
           <h3 class="remote-create-title">
             {{ createEntryKind === 'directory' ? '新建文件夹' : '新建文件' }}
           </h3>
-          <p class="remote-create-copy">在当前目录中创建一个新的{{ createEntryKind === 'directory' ? '文件夹' : '文件' }}。</p>
+          <p class="remote-create-copy">
+            在当前目录中创建一个新的{{ createEntryKind === 'directory' ? '文件夹' : '文件' }}。
+          </p>
         </div>
 
         <div class="remote-create-kind-switch" role="tablist" aria-label="Create entry type">
@@ -906,11 +1133,7 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <div
-      v-if="deleteDialogOpen"
-      class="remote-create-overlay"
-      @click.self="closeDeleteDialog()"
-    >
+    <div v-if="deleteDialogOpen" class="remote-create-overlay" @click.self="closeDeleteDialog()">
       <section class="remote-create-dialog remote-delete-dialog" role="dialog" aria-modal="true">
         <div class="remote-create-header">
           <span class="remote-create-eyebrow">REMOTE EXPLORER</span>
@@ -973,6 +1196,218 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
+.remote-upload-toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 2100;
+  display: grid;
+  width: min(420px, calc(100vw - 32px));
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(83, 98, 105, 0.56);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(24, 29, 33, 0.98), rgba(14, 17, 20, 0.98));
+  box-shadow:
+    0 18px 54px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  color: rgba(232, 238, 242, 0.96);
+  backdrop-filter: blur(16px);
+  animation: remote-upload-in 180ms ease-out;
+
+  &.is-success {
+    border-color: rgba(105, 246, 185, 0.42);
+  }
+
+  &.is-error {
+    border-color: rgba(255, 130, 130, 0.46);
+  }
+
+  &.is-canceled {
+    border-color: rgba(185, 202, 202, 0.34);
+  }
+}
+
+.remote-delete-toast {
+  bottom: 118px;
+}
+
+.remote-upload-icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(99, 247, 255, 0.26);
+  border-radius: 8px;
+  background: rgba(0, 220, 229, 0.1);
+  color: var(--cyan-soft);
+
+  .is-success & {
+    border-color: rgba(105, 246, 185, 0.3);
+    background: rgba(105, 246, 185, 0.1);
+    color: var(--green);
+  }
+
+  .is-error & {
+    border-color: rgba(255, 130, 130, 0.32);
+    background: rgba(147, 0, 10, 0.16);
+    color: #ffb4ab;
+  }
+
+  .is-canceled & {
+    border-color: rgba(185, 202, 202, 0.28);
+    background: rgba(185, 202, 202, 0.08);
+    color: rgba(228, 225, 230, 0.86);
+  }
+}
+
+.remote-upload-main {
+  min-width: 0;
+}
+
+.remote-upload-header,
+.remote-upload-title-group,
+.remote-upload-meta {
+  display: flex;
+  align-items: center;
+}
+
+.remote-upload-header {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.remote-upload-title-group {
+  min-width: 0;
+  gap: 8px;
+
+  strong {
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  span {
+    color: rgba(185, 202, 202, 0.78);
+    font-size: 11px;
+  }
+}
+
+.remote-upload-close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(185, 202, 202, 0.8);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(238, 244, 247, 0.96);
+  }
+}
+
+.remote-upload-track {
+  overflow: hidden;
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: rgba(58, 73, 74, 0.42);
+}
+
+.remote-upload-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(99, 247, 255, 0.94), rgba(105, 246, 185, 0.92));
+  transition: width 180ms ease-out;
+
+  .is-error & {
+    background: linear-gradient(90deg, rgba(255, 180, 171, 0.92), rgba(255, 130, 130, 0.86));
+  }
+
+  &.is-indeterminate {
+    width: 46% !important;
+    animation: remote-upload-indeterminate 1.1s ease-in-out infinite;
+  }
+}
+
+.remote-upload-meta {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  color: rgba(185, 202, 202, 0.78);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.remote-upload-current,
+.remote-upload-error {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-upload-error {
+  color: #ffb4ab;
+}
+
+.remote-upload-size {
+  flex: 0 0 auto;
+  color: rgba(228, 225, 230, 0.82);
+  font-variant-numeric: tabular-nums;
+}
+
+.remote-upload-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  color: rgba(228, 225, 230, 0.76);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+.remote-upload-stats span {
+  padding: 2px 7px;
+  border: 1px solid rgba(228, 225, 230, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+@keyframes remote-upload-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes remote-upload-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(240%);
+  }
+}
+
 .remote-create-overlay {
   position: fixed;
   inset: 0;
@@ -990,8 +1425,7 @@ onBeforeUnmount(() => {
   padding: 18px;
   border: 1px solid rgba(84, 100, 108, 0.28);
   border-radius: 10px;
-  background:
-    linear-gradient(180deg, rgba(20, 25, 28, 0.98), rgba(15, 18, 21, 0.98));
+  background: linear-gradient(180deg, rgba(20, 25, 28, 0.98), rgba(15, 18, 21, 0.98));
   box-shadow:
     0 28px 80px rgba(0, 0, 0, 0.48),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);

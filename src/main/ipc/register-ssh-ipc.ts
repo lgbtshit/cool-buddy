@@ -28,12 +28,16 @@ import {
 import {
   createRemoteDirectory,
   completeRemotePath,
+  appendRemoteUploadChunk,
+  cancelRemoteUpload,
   deleteRemoteEntry,
   downloadRemoteFileToTemp,
+  finishRemoteUpload,
   listRemoteDirectory,
   readRemoteFile,
   renameRemoteEntry,
   sftpRealpath,
+  startRemoteUpload,
   syncLocalFileToRemote,
   uploadRemoteFile,
   writeRemoteTextFile
@@ -377,7 +381,11 @@ function quoteShellArg(value: string): string {
  * @param remotePath 对应的远程文件路径
  * @return string 可直接展示给用户的错误提示
  */
-function formatOpenRemoteFileError(openError: string, localPath: string, remotePath: string): string {
+function formatOpenRemoteFileError(
+  openError: string,
+  localPath: string,
+  remotePath: string
+): string {
   if (/requested file or directory could not be found/i.test(openError)) {
     return `无法打开远程文件，系统在处理打开请求时没有找到对应的本地临时文件。\n远程文件：${remotePath}\n本地临时文件：${localPath}`;
   }
@@ -783,6 +791,16 @@ exec tail -n ${lineCount} -f -- ${quoteShellArg(path)}
     writeRemoteTextFile(payload)
   );
   ipcMain.handle('ssh:upload-remote-file', async (_event, payload) => uploadRemoteFile(payload));
+  ipcMain.handle('ssh:start-remote-upload', async (_event, payload) => startRemoteUpload(payload));
+  ipcMain.handle('ssh:append-remote-upload-chunk', async (_event, payload) =>
+    appendRemoteUploadChunk(payload)
+  );
+  ipcMain.handle('ssh:finish-remote-upload', async (_event, payload) =>
+    finishRemoteUpload(payload)
+  );
+  ipcMain.handle('ssh:cancel-remote-upload', async (_event, payload) =>
+    cancelRemoteUpload(payload)
+  );
   ipcMain.handle('ssh:create-remote-directory', async (_event, payload) =>
     createRemoteDirectory(payload)
   );

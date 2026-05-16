@@ -302,7 +302,8 @@ const api = {
       ipcRenderer.invoke('ssh:start-log-tail', payload),
     stopLogTail: (streamId: string): Promise<{ ok: true }> =>
       ipcRenderer.invoke('ssh:stop-log-tail', streamId),
-    getStatusSnapshot: (): Promise<SshStatusPayload> => ipcRenderer.invoke('ssh:get-status-snapshot'),
+    getStatusSnapshot: (): Promise<SshStatusPayload> =>
+      ipcRenderer.invoke('ssh:get-status-snapshot'),
     disconnect: () => ipcRenderer.invoke('ssh:disconnect'),
     listRemote: (payload?: { path?: string; showHidden?: boolean }): Promise<RemoteDirectory> =>
       ipcRenderer.invoke('ssh:list-remote', payload),
@@ -326,6 +327,23 @@ const api = {
       data: Uint8Array;
     }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:upload-remote-file', payload),
+    startRemoteUpload: (payload: {
+      uploadId: string;
+      directory: string;
+      name: string;
+      relativePath?: string;
+    }): Promise<{ ok: true; path: string }> =>
+      ipcRenderer.invoke('ssh:start-remote-upload', payload),
+    appendRemoteUploadChunk: (payload: {
+      uploadId: string;
+      data: Uint8Array;
+      offset?: number;
+    }): Promise<{ ok: true; path: string; bytesWritten: number; offset: number }> =>
+      ipcRenderer.invoke('ssh:append-remote-upload-chunk', payload),
+    finishRemoteUpload: (payload: { uploadId: string }): Promise<{ ok: true; path: string }> =>
+      ipcRenderer.invoke('ssh:finish-remote-upload', payload),
+    cancelRemoteUpload: (payload: { uploadId: string }): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('ssh:cancel-remote-upload', payload),
     createRemoteDirectory: (payload: { path: string }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:create-remote-directory', payload),
     renameRemoteEntry: (payload: {
@@ -336,6 +354,7 @@ const api = {
     deleteRemoteEntry: (payload: {
       path: string;
       recursive?: boolean;
+      kind?: 'file' | 'directory' | 'symlink';
     }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:delete-remote-entry', payload),
     getLatency: (): Promise<number | null> => ipcRenderer.invoke('ssh:get-latency'),
