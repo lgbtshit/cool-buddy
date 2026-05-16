@@ -1,6 +1,6 @@
 {
   "name": "cool-buddy",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "a cool tool for you",
   "packageManager": "pnpm@10.33.3",
   "main": "./out/main/index.js",
@@ -20,10 +20,7 @@
     "build:unpack": "pnpm run build && electron-builder --dir",
     "build:win": "pnpm run build && electron-builder --win",
     "build:mac": "pnpm run build && electron-builder --mac dmg --arm64",
-    "build:linux": "pnpm run build && electron-builder --linux",
-    "tauri": "pnpm --filter cool-buddy-tauri tauri",
-    "tauri:dev": "pnpm --filter cool-buddy-tauri tauri:dev",
-    "tauri:build": "pnpm --filter cool-buddy-tauri tauri:build"
+    "build:linux": "pnpm run build && electron-builder --linux"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
