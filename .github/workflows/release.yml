@@ -19,6 +19,8 @@ jobs:
     env:
       ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
       npm_config_electron_builder_binaries_mirror: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+      ELECTRON_UPDATER_URL: ${{ secrets.ELECTRON_UPDATER_URL }}
+      ALIYUN_OSS_CONFIG: ${{ secrets.OSS }}
 
     steps:
       - name: Checkout
@@ -37,6 +39,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Resolve release environment
+        run: node scripts/resolve-oss-release-env.mjs
 
       - name: Build Windows package
         run: pnpm build:win
@@ -57,6 +62,8 @@ jobs:
     env:
       ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
       npm_config_electron_builder_binaries_mirror: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+      ELECTRON_UPDATER_URL: ${{ secrets.ELECTRON_UPDATER_URL }}
+      ALIYUN_OSS_CONFIG: ${{ secrets.OSS }}
 
     steps:
       - name: Checkout
@@ -76,7 +83,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build macOS ARM64 dmg
+      - name: Resolve release environment
+        run: node scripts/resolve-oss-release-env.mjs
+
+      - name: Build macOS ARM64 package
         run: pnpm build:mac
 
       - name: Upload macOS artifacts
@@ -85,6 +95,9 @@ jobs:
           name: macos-arm64-release
           path: |
             dist/*.dmg
+            dist/*.zip
+            dist/latest-mac.yml
+            dist/*.blockmap
           if-no-files-found: error
 
   publish-release:
@@ -95,6 +108,23 @@ jobs:
       - build-macos-arm64
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install upload dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
@@ -120,3 +150,13 @@ jobs:
           files: |
             release-assets/windows/*
             release-assets/macos/*
+
+      - name: Upload update assets to Aliyun OSS
+        env:
+          ALIYUN_OSS_REGION: ${{ secrets.ALIYUN_OSS_REGION }}
+          ALIYUN_OSS_BUCKET: ${{ secrets.ALIYUN_OSS_BUCKET }}
+          ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_PREFIX: ${{ secrets.ALIYUN_OSS_PREFIX }}
+          ALIYUN_OSS_CONFIG: ${{ secrets.OSS }}
+        run: pnpm release:upload:oss

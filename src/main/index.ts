@@ -11,6 +11,7 @@ import { resolveLocale } from '../shared/locale';
 import { destroyAppTray, createAppTray } from './tray/create-app-tray';
 import { setIsQuitting } from './state/app-lifecycle';
 import { createMainWindow } from './windows/create-main-window';
+import { initializeAutoUpdates } from './updates/auto-update';
 
 app
   .whenReady()
@@ -29,6 +30,7 @@ app
     registerSshIpc();
     createMainWindow();
     createAppTray();
+    initializeAutoUpdates();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

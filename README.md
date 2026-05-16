@@ -133,9 +133,21 @@ pnpm build:linux
 GitHub Release 工作流会为当前项目构建并上传：
 
 - Windows 安装包：`*-setup.exe`
-- macOS Apple Silicon 安装包：`*.dmg`
+- macOS Apple Silicon 安装包：`*.dmg`、`*.zip`
+- 自动更新元数据：`latest.yml`、`latest-mac.yml`
 
-发布时建议直接从 GitHub Release 下载对应平台安装包。
+自动更新使用 `electron-updater` 的 generic provider。发布工作流会把安装包、blockmap 和更新元数据同步到阿里云 OSS，客户端从 `ELECTRON_UPDATER_URL` 指向的 HTTPS 地址检查更新。
+
+GitHub Actions 需要配置以下 Secrets：
+
+- `ELECTRON_UPDATER_URL`：公开下载地址，例如 `https://download.example.com/cool-buddy`
+- `ALIYUN_OSS_REGION`：OSS region，例如 `oss-cn-hangzhou`
+- `ALIYUN_OSS_BUCKET`：OSS bucket 名称
+- `ALIYUN_OSS_ACCESS_KEY_ID`：有上传权限的 RAM AccessKey ID
+- `ALIYUN_OSS_ACCESS_KEY_SECRET`：对应 AccessKey Secret
+- `ALIYUN_OSS_PREFIX`：OSS 对象前缀，默认 `cool-buddy`
+
+`ELECTRON_UPDATER_URL` 应和 OSS/CDN 公开地址加前缀保持一致。例如 `ALIYUN_OSS_PREFIX=cool-buddy` 时，公网地址应指向 `https://download.example.com/cool-buddy`。
 
 ### 项目结构
 
@@ -296,9 +308,21 @@ pnpm build:linux
 The GitHub Release workflow builds and uploads:
 
 - Windows installer: `*-setup.exe`
-- macOS Apple Silicon installer: `*.dmg`
+- macOS Apple Silicon installer: `*.dmg`, `*.zip`
+- Auto-update metadata: `latest.yml`, `latest-mac.yml`
 
-For distribution, download the platform-specific installer directly from GitHub Releases.
+Auto updates use the `electron-updater` generic provider. The release workflow syncs installers, blockmaps, and update metadata to Aliyun OSS, and the app checks the HTTPS URL configured by `ELECTRON_UPDATER_URL`.
+
+Configure these GitHub Actions secrets:
+
+- `ELECTRON_UPDATER_URL`: public update URL, for example `https://download.example.com/cool-buddy`
+- `ALIYUN_OSS_REGION`: OSS region, for example `oss-cn-hangzhou`
+- `ALIYUN_OSS_BUCKET`: OSS bucket name
+- `ALIYUN_OSS_ACCESS_KEY_ID`: RAM AccessKey ID with upload permission
+- `ALIYUN_OSS_ACCESS_KEY_SECRET`: matching AccessKey Secret
+- `ALIYUN_OSS_PREFIX`: OSS object prefix, defaults to `cool-buddy`
+
+`ELECTRON_UPDATER_URL` must match the public OSS/CDN URL plus the prefix. For example, with `ALIYUN_OSS_PREFIX=cool-buddy`, use `https://download.example.com/cool-buddy`.
 
 ### Project structure
 
