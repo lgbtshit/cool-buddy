@@ -235,10 +235,30 @@ type RemoteApp = {
   description: string | null;
 };
 
+type AppVersionInfo = {
+  name: string;
+  version: string;
+  isPackaged: boolean;
+  updateBaseUrl: string;
+};
+
+type AppUpdateCheckStatus = 'up-to-date' | 'update-available' | 'not-supported' | 'error';
+
+type AppUpdateCheckResult = {
+  status: AppUpdateCheckStatus;
+  currentVersion: string;
+  latestVersion: string | null;
+  message: string;
+  checkedAt: string;
+  updateBaseUrl: string;
+};
+
 const api = {
   app: {
     setLocale: (locale: Locale): Promise<{ ok: true }> =>
-      ipcRenderer.invoke('app:set-locale', locale)
+      ipcRenderer.invoke('app:set-locale', locale),
+    getVersionInfo: (): Promise<AppVersionInfo> => ipcRenderer.invoke('app:get-version-info'),
+    checkUpdates: (): Promise<AppUpdateCheckResult> => ipcRenderer.invoke('app:check-updates')
   },
   sessions: {
     list: (): Promise<SessionItem[]> => ipcRenderer.invoke('sessions:list'),

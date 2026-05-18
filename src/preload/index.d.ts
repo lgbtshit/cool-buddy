@@ -234,9 +234,29 @@ type RemoteApp = {
   description: string | null;
 };
 
+type AppVersionInfo = {
+  name: string;
+  version: string;
+  isPackaged: boolean;
+  updateBaseUrl: string;
+};
+
+type AppUpdateCheckStatus = 'up-to-date' | 'update-available' | 'not-supported' | 'error';
+
+type AppUpdateCheckResult = {
+  status: AppUpdateCheckStatus;
+  currentVersion: string;
+  latestVersion: string | null;
+  message: string;
+  checkedAt: string;
+  updateBaseUrl: string;
+};
+
 type AppApi = {
   app: {
     setLocale: (locale: Locale) => Promise<{ ok: true }>;
+    getVersionInfo: () => Promise<AppVersionInfo>;
+    checkUpdates: () => Promise<AppUpdateCheckResult>;
   };
   sessions: {
     list: () => Promise<SessionItem[]>;
