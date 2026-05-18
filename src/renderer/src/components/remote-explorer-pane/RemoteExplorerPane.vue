@@ -38,6 +38,13 @@ type BrowserDataTransferItem = DataTransferItem & {
   webkitGetAsEntry?: () => FileSystemEntry | null;
 };
 
+type ResolvedDroppedItem = {
+  kind: string;
+  type: string;
+  entry: FileSystemEntry | null;
+  file: File | null;
+};
+
 const store = useSshConsoleStore();
 const {
   explorerBusy,
@@ -431,6 +438,7 @@ async function extractDroppedFiles(event: DragEvent): Promise<DroppedRemotePaylo
   const transferFiles = Array.from(event.dataTransfer?.files ?? []);
   const droppedDirectories: string[] = [];
   const droppedFiles: DroppedRemoteFile[] = [];
+  const seenItemKeys = new Set<string>();
 
   console.log('[remote-upload] extractDroppedFiles:start', {
     itemCount: transferItems.length,
@@ -438,24 +446,45 @@ async function extractDroppedFiles(event: DragEvent): Promise<DroppedRemotePaylo
   });
 
   if (transferItems.length > 0) {
-    for (const item of transferItems) {
-      const entry = item.webkitGetAsEntry?.() ?? null;
+    // Snapshot all draggable items before the first await. Electron/Chromium may
+    // invalidate DataTransferItem access after the drop handler yields.
+    const resolvedItems: ResolvedDroppedItem[] = transferItems.map((item) => ({
+      kind: item.kind,
+      type: item.type,
+      entry: item.webkitGetAsEntry?.() ?? null,
+      file: item.getAsFile()
+    }));
 
-      if (entry) {
+    for (const item of resolvedItems) {
+      const entryKey = item.entry?.fullPath || item.entry?.name || '';
+      const fallbackFileKey = item.file
+        ? `${item.file.name}:${item.file.size}:${item.file.lastModified}`
+        : '';
+      const itemKey = entryKey || fallbackFileKey;
+
+      if (itemKey && seenItemKeys.has(itemKey)) {
+        continue;
+      }
+
+      if (itemKey) {
+        seenItemKeys.add(itemKey);
+      }
+
+      if (item.entry) {
         console.log('[remote-upload] extractDroppedFiles:item-entry', {
           kind: item.kind,
-          name: entry.name,
-          fullPath: entry.fullPath,
-          isFile: entry.isFile,
-          isDirectory: entry.isDirectory
+          name: item.entry.name,
+          fullPath: item.entry.fullPath,
+          isFile: item.entry.isFile,
+          isDirectory: item.entry.isDirectory
         });
-        const payload = await collectDroppedFiles(entry);
+        const payload = await collectDroppedFiles(item.entry);
         droppedDirectories.push(...payload.directories);
         droppedFiles.push(...payload.files);
         continue;
       }
 
-      const file = item.getAsFile();
+      const file = item.file;
       if (file) {
         console.log('[remote-upload] extractDroppedFiles:item-file-fallback', {
           kind: item.kind,

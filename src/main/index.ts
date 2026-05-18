@@ -7,43 +7,72 @@ import { registerHarmlessAgentIpc } from './ipc/register-harmless-agent-ipc';
 import { registerSessionIpc } from './ipc/register-session-ipc';
 import { registerSshIpc } from './ipc/register-ssh-ipc';
 import { setAppLocale } from './state/app-locale';
+import { getMainWindow } from './state/main-window';
 import { resolveLocale } from '../shared/locale';
 import { destroyAppTray, createAppTray } from './tray/create-app-tray';
 import { setIsQuitting } from './state/app-lifecycle';
 import { createMainWindow } from './windows/create-main-window';
 import { initializeAutoUpdates } from './updates/auto-update';
 
-app
-  .whenReady()
-  .then(() => {
-    electronApp.setAppUserModelId('com.electron');
-    setAppLocale(resolveLocale(app.getLocale()));
+function showMainWindow(): void {
+  const mainWindow = getMainWindow();
 
-    app.on('browser-window-created', (_, window) => {
-      optimizer.watchWindowShortcuts(window);
-    });
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (app.isReady()) {
+      createMainWindow();
+    }
+    return;
+  }
 
-    registerSessionIpc();
-    registerAppIpc();
-    registerAgentSettingsIpc();
-    registerHarmlessAgentIpc();
-    registerSshIpc();
-    createMainWindow();
-    createAppTray();
-    initializeAutoUpdates();
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
 
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createMainWindow();
-        return;
-      }
+  mainWindow.show();
+  mainWindow.focus();
+}
 
-      BrowserWindow.getAllWindows()[0]?.show();
-    });
-  })
-  .catch((error) => {
-    console.error('Failed to initialize app:', error);
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showMainWindow();
   });
+
+  app
+    .whenReady()
+    .then(() => {
+      electronApp.setAppUserModelId('com.electron');
+      setAppLocale(resolveLocale(app.getLocale()));
+
+      app.on('browser-window-created', (_, window) => {
+        optimizer.watchWindowShortcuts(window);
+      });
+
+      registerSessionIpc();
+      registerAppIpc();
+      registerAgentSettingsIpc();
+      registerHarmlessAgentIpc();
+      registerSshIpc();
+      createMainWindow();
+      createAppTray();
+      initializeAutoUpdates();
+
+      app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          createMainWindow();
+          return;
+        }
+
+        showMainWindow();
+      });
+    })
+    .catch((error) => {
+      console.error('Failed to initialize app:', error);
+    });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
