@@ -713,7 +713,12 @@ function handleDocumentPointerDown(event: PointerEvent) {
     closeContextMenu();
   }
 
+  if (target.closest('.remote-entry-row')) {
+    return;
+  }
+
   if (explorerPaneRef.value?.contains(target)) {
+    clearEntrySelection();
     return;
   }
 
