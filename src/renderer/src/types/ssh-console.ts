@@ -105,6 +105,8 @@ export type AgentModelOption = {
 
 export type AgentRiskLevel = 'p0' | 'p1' | 'p2' | 'p3' | 'p4';
 
+export type AgentRunPhase = 'idle' | 'running' | 'compressing' | 'awaiting-approval';
+
 export type AgentThreadMessage = {
   id: string;
   role: 'user' | 'assistant' | 'tool' | 'system';
@@ -129,6 +131,7 @@ export type AgentStateSnapshot = {
   messages: AgentThreadMessage[];
   pendingApproval: AgentApprovalRequest | null;
   running: boolean;
+  phase: AgentRunPhase;
   configured: boolean;
   lastError: string;
 };

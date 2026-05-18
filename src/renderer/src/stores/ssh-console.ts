@@ -407,6 +407,7 @@ function createDefaultAgentStateSnapshot(): AgentStateSnapshot {
     messages: [],
     pendingApproval: null,
     running: false,
+    phase: 'idle',
     configured: false,
     lastError: ''
   };

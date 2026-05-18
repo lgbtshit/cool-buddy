@@ -88,8 +88,9 @@ const visibleAgentMessages = computed(() =>
 
 const hasAgentMessages = computed(() => visibleAgentMessages.value.length > 0);
 const showAgentThinking = computed(() =>
-  Boolean(agentRuntime.value.running && thinkingMessage.value)
+  Boolean(agentRuntime.value.phase === 'running' && thinkingMessage.value)
 );
+const showAgentCompression = computed(() => agentRuntime.value.phase === 'compressing');
 const agentEmptyTitle = computed(() =>
   isConnected.value ? t('agentEmptyTitle') : t('agentDisconnectedTitle')
 );
@@ -105,12 +106,16 @@ const agentThinkStyle = computed(() => ({
 }));
 
 const agentStatusLabel = computed(() => {
-  if (agentRuntime.value.running) {
-    return t('agentStatusRunning');
+  if (agentRuntime.value.phase === 'compressing') {
+    return t('agentStatusCompressing');
   }
 
-  if (pendingAgentApproval.value) {
-    return pendingAgentApproval.value.riskLevel.toUpperCase();
+  if (agentRuntime.value.phase === 'awaiting-approval') {
+    return t('agentStatusAwaitingApproval');
+  }
+
+  if (agentRuntime.value.phase === 'running') {
+    return t('agentStatusRunning');
   }
 
   return t('agentStatusReady');
@@ -341,7 +346,11 @@ watch(
           </div>
         </div>
 
-        <div v-if="hasAgentMessages || showAgentThinking" ref="agentThreadRef" class="agent-thread">
+        <div
+          v-if="hasAgentMessages || showAgentThinking || showAgentCompression"
+          ref="agentThreadRef"
+          class="agent-thread"
+        >
           <article
             v-for="message in visibleAgentMessages"
             :key="message.id"
@@ -366,6 +375,17 @@ watch(
               {{ t('agentRoleAssistant') }} - {{ t('agentThinkingNow') }}
             </span>
             <div class="thinking-row" aria-live="polite" :aria-label="t('agentThinkingAria')">
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+            </div>
+          </article>
+
+          <article v-if="showAgentCompression" class="agent-bubble agent-bubble-thinking">
+            <span class="agent-bubble-label">
+              {{ t('agentRoleSystem') }} - {{ t('agentCompressingNow') }}
+            </span>
+            <div class="thinking-row" aria-live="polite" :aria-label="t('agentCompressingAria')">
               <span class="thinking-dot"></span>
               <span class="thinking-dot"></span>
               <span class="thinking-dot"></span>
