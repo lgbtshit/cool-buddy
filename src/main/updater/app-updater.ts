@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { autoUpdater } from 'electron-updater';
 
-const APP_UPDATE_BASE_URL = 'https://tenxll.oss-cn-shanghai.aliyuncs.com/cool-buddy/';
+export const APP_UPDATE_BASE_URL = 'https://tenxll.oss-cn-shanghai.aliyuncs.com/cool-buddy/';
 
 export type AppVersionInfo = {
   name: string;
@@ -29,13 +29,13 @@ let updateCheckTask: Promise<AppUpdateCheckResult> | null = null;
  * @param void 无参数
  * @return void 无返回
  */
-function ensureUpdaterConfigured(): void {
+export function ensureUpdaterConfigured(): void {
   if (updaterConfigured) {
     return;
   }
 
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.setFeedURL(APP_UPDATE_BASE_URL);
   updaterConfigured = true;
 }

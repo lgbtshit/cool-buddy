@@ -1,6 +1,7 @@
 import { app, dialog } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { setIsQuitting } from '../state/app-lifecycle';
+import { ensureUpdaterConfigured } from '../updater/app-updater';
 
 let initialized = false;
 
@@ -10,9 +11,7 @@ export function initializeAutoUpdates(): void {
   }
 
   initialized = true;
-
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  ensureUpdaterConfigured();
 
   autoUpdater.on('error', (error) => {
     console.error('Auto update failed:', error);
