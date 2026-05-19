@@ -60,6 +60,7 @@ const {
 const { t } = useAppCopy();
 
 const explorerPaneRef = ref<HTMLElement | null>(null);
+const explorerScrollRef = ref<HTMLElement | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const dropActive = ref(false);
 const pathInput = ref('');
@@ -83,6 +84,23 @@ const renameInput = ref<InputInstance | null>(null);
 const pathCompletionMatches = ref<string[]>([]);
 const pathCompletionIndex = ref(-1);
 const pathCompletionQuery = ref('');
+const marqueeSelectionRect = ref<{
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+} | null>(null);
+
+type MarqueeSelectionState = {
+  pointerId: number;
+  originContentX: number;
+  originContentY: number;
+  currentClientX: number;
+  currentClientY: number;
+};
+
+let marqueeSelectionState: MarqueeSelectionState | null = null;
+let marqueeAutoScrollFrame: number | null = null;
 
 const previewLines = computed(() => {
   if (!remotePreview.value) return [];
@@ -102,6 +120,8 @@ const visibleEntries = computed(() => {
 
   return entries.filter((entry) => !entry.name.startsWith('.'));
 });
+
+const isMarqueeSelecting = computed(() => marqueeSelectionRect.value !== null);
 
 const uploadProgressPercent = computed(() => {
   const batch = remoteUploadBatch.value;
@@ -227,6 +247,142 @@ function isEntryExclusivelySelected(path: string) {
 function clearEntrySelection() {
   selectedEntryPaths.value = [];
   selectionAnchorPath.value = '';
+}
+
+function syncMarqueeSelection() {
+  const marqueeState = marqueeSelectionState;
+  const scrollContainer = explorerScrollRef.value;
+  if (!marqueeState || !scrollContainer) {
+    marqueeSelectionRect.value = null;
+    return;
+  }
+
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const currentContentX =
+    marqueeState.currentClientX - containerRect.left + scrollContainer.scrollLeft;
+  const currentContentY =
+    marqueeState.currentClientY - containerRect.top + scrollContainer.scrollTop;
+  const left = Math.min(marqueeState.originContentX, currentContentX);
+  const right = Math.max(marqueeState.originContentX, currentContentX);
+  const top = Math.min(marqueeState.originContentY, currentContentY);
+  const bottom = Math.max(marqueeState.originContentY, currentContentY);
+
+  marqueeSelectionRect.value = {
+    left,
+    top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top)
+  };
+
+  const intersectedPaths = new Set<string>();
+  const entryRows = scrollContainer.querySelectorAll<HTMLElement>(
+    '.remote-entry-row[data-entry-path]'
+  );
+  entryRows.forEach((row) => {
+    const rowRect = row.getBoundingClientRect();
+    const rowLeft = rowRect.left - containerRect.left + scrollContainer.scrollLeft;
+    const rowRight = rowRect.right - containerRect.left + scrollContainer.scrollLeft;
+    const rowTop = rowRect.top - containerRect.top + scrollContainer.scrollTop;
+    const rowBottom = rowRect.bottom - containerRect.top + scrollContainer.scrollTop;
+    const intersects = rowRight >= left && rowLeft <= right && rowBottom >= top && rowTop <= bottom;
+
+    if (intersects) {
+      const rowPath = row.dataset.entryPath;
+      if (rowPath) {
+        intersectedPaths.add(rowPath);
+      }
+    }
+  });
+
+  selectedEntryPaths.value = visibleEntries.value
+    .filter((entry) => intersectedPaths.has(entry.path))
+    .map((entry) => entry.path);
+  selectionAnchorPath.value = selectedEntryPaths.value.at(-1) ?? '';
+}
+
+function getMarqueeAutoScrollDelta() {
+  const marqueeState = marqueeSelectionState;
+  const scrollContainer = explorerScrollRef.value;
+  if (!marqueeState || !scrollContainer) {
+    return 0;
+  }
+
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const edgeThreshold = 28;
+
+  if (marqueeState.currentClientY < containerRect.top + edgeThreshold) {
+    return Math.max(
+      -18,
+      (marqueeState.currentClientY - (containerRect.top + edgeThreshold)) * 0.35
+    );
+  }
+
+  if (marqueeState.currentClientY > containerRect.bottom - edgeThreshold) {
+    return Math.min(
+      18,
+      (marqueeState.currentClientY - (containerRect.bottom - edgeThreshold)) * 0.35
+    );
+  }
+
+  return 0;
+}
+
+function stopMarqueeAutoScroll() {
+  if (marqueeAutoScrollFrame !== null) {
+    window.cancelAnimationFrame(marqueeAutoScrollFrame);
+    marqueeAutoScrollFrame = null;
+  }
+}
+
+function stepMarqueeAutoScroll() {
+  const marqueeState = marqueeSelectionState;
+  const scrollContainer = explorerScrollRef.value;
+  if (!marqueeState || !scrollContainer) {
+    stopMarqueeAutoScroll();
+    return;
+  }
+
+  const delta = getMarqueeAutoScrollDelta();
+  if (delta === 0) {
+    stopMarqueeAutoScroll();
+    return;
+  }
+
+  const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+  const nextScrollTop = Math.min(maxScrollTop, Math.max(0, scrollContainer.scrollTop + delta));
+
+  if (nextScrollTop !== scrollContainer.scrollTop) {
+    scrollContainer.scrollTop = nextScrollTop;
+    syncMarqueeSelection();
+  }
+
+  marqueeAutoScrollFrame = window.requestAnimationFrame(stepMarqueeAutoScroll);
+}
+
+function ensureMarqueeAutoScroll() {
+  if (marqueeAutoScrollFrame !== null || getMarqueeAutoScrollDelta() === 0) {
+    return;
+  }
+
+  marqueeAutoScrollFrame = window.requestAnimationFrame(stepMarqueeAutoScroll);
+}
+
+function stopMarqueeSelection() {
+  const pointerId = marqueeSelectionState?.pointerId;
+  if (pointerId !== undefined) {
+    try {
+      explorerScrollRef.value?.releasePointerCapture?.(pointerId);
+    } catch {
+      // Pointer capture may already be released when the drag ends outside the pane.
+    }
+  }
+
+  marqueeSelectionState = null;
+  marqueeSelectionRect.value = null;
+  stopMarqueeAutoScroll();
+  window.removeEventListener('pointermove', handleMarqueePointerMove);
+  window.removeEventListener('pointerup', handleMarqueePointerUp);
+  window.removeEventListener('pointercancel', handleMarqueePointerUp);
 }
 
 function openCreateEntryDialog(kind: 'directory' | 'file' = 'directory') {
@@ -682,6 +838,72 @@ function handleEntryClick(entry: RemoteEntry, event: MouseEvent) {
   updateEntrySelection(entry, event);
 }
 
+function handleMarqueePointerMove(event: PointerEvent) {
+  if (!marqueeSelectionState || event.pointerId !== marqueeSelectionState.pointerId) {
+    return;
+  }
+
+  event.preventDefault();
+  marqueeSelectionState.currentClientX = event.clientX;
+  marqueeSelectionState.currentClientY = event.clientY;
+  syncMarqueeSelection();
+  ensureMarqueeAutoScroll();
+}
+
+function handleMarqueePointerUp(event: PointerEvent) {
+  if (!marqueeSelectionState || event.pointerId !== marqueeSelectionState.pointerId) {
+    return;
+  }
+
+  stopMarqueeSelection();
+}
+
+function handleExplorerPointerDown(event: PointerEvent) {
+  if (event.button !== 0 || !visibleEntries.value.length) {
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  if (
+    target.closest('.remote-entry-row') ||
+    target.closest('.remote-preview') ||
+    target.closest('.empty-state') ||
+    target.closest('.remote-explorer-error') ||
+    target.closest('.remote-path-bar')
+  ) {
+    return;
+  }
+
+  const scrollContainer = explorerScrollRef.value;
+  if (!scrollContainer) {
+    return;
+  }
+
+  closeContextMenu();
+  cancelRename();
+  clearEntrySelection();
+
+  const containerRect = scrollContainer.getBoundingClientRect();
+  marqueeSelectionState = {
+    pointerId: event.pointerId,
+    originContentX: event.clientX - containerRect.left + scrollContainer.scrollLeft,
+    originContentY: event.clientY - containerRect.top + scrollContainer.scrollTop,
+    currentClientX: event.clientX,
+    currentClientY: event.clientY
+  };
+
+  event.preventDefault();
+  scrollContainer.setPointerCapture?.(event.pointerId);
+  syncMarqueeSelection();
+  window.addEventListener('pointermove', handleMarqueePointerMove);
+  window.addEventListener('pointerup', handleMarqueePointerUp);
+  window.addEventListener('pointercancel', handleMarqueePointerUp);
+}
+
 async function handleEntryNameClick(entry: RemoteEntry, event: MouseEvent) {
   if (editingEntryPath.value === entry.path || renamingEntryPath.value === entry.path) {
     return;
@@ -733,6 +955,10 @@ async function submitRename(entry: RemoteEntry) {
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
+  if (marqueeSelectionState && event.pointerId === marqueeSelectionState.pointerId) {
+    return;
+  }
+
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
     return;
@@ -795,6 +1021,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  stopMarqueeSelection();
   if (transferClockTimer !== null) {
     window.clearInterval(transferClockTimer);
     transferClockTimer = null;
@@ -887,7 +1114,24 @@ onBeforeUnmount(() => {
         </form>
       </div>
 
-      <div class="remote-explorer-scroll" @contextmenu="openContextMenu">
+      <div
+        ref="explorerScrollRef"
+        class="remote-explorer-scroll"
+        :class="{ 'is-marquee-selecting': isMarqueeSelecting }"
+        @contextmenu="openContextMenu"
+        @pointerdown="handleExplorerPointerDown"
+      >
+        <div
+          v-if="marqueeSelectionRect"
+          class="remote-selection-marquee"
+          :style="{
+            left: `${marqueeSelectionRect.left}px`,
+            top: `${marqueeSelectionRect.top}px`,
+            width: `${marqueeSelectionRect.width}px`,
+            height: `${marqueeSelectionRect.height}px`
+          }"
+        ></div>
+
         <div v-if="explorerError" class="remote-explorer-error">{{ explorerError }}</div>
 
         <div v-if="explorerLoading" class="empty-state compact">{{ t('loadingRemoteFiles') }}</div>
@@ -898,6 +1142,7 @@ onBeforeUnmount(() => {
             :key="entry.path"
             class="remote-entry-row"
             :class="{ 'is-selected': isEntrySelected(entry.path) }"
+            :data-entry-path="entry.path"
             @click="handleEntryClick(entry, $event)"
             @dblclick="void openEntry(entry)"
           >
@@ -1607,6 +1852,7 @@ onBeforeUnmount(() => {
 }
 
 .remote-explorer-scroll {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
@@ -1614,6 +1860,20 @@ onBeforeUnmount(() => {
   gap: 10px;
   overflow: auto;
   padding-top: 10px;
+
+  &.is-marquee-selecting {
+    user-select: none;
+  }
+}
+
+.remote-selection-marquee {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border: 1px solid rgba(99, 247, 255, 0.62);
+  border-radius: 4px;
+  background: rgba(0, 220, 229, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .remote-context-menu {
