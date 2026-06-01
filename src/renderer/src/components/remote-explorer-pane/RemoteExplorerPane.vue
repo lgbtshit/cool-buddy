@@ -5,6 +5,7 @@ import 'element-plus/es/components/input/style/css';
 import {
   ArrowUp,
   CheckCircle2,
+  Download,
   Eye,
   EyeOff,
   FolderPlus,
@@ -53,6 +54,7 @@ const {
   isConnected,
   remoteDirectory,
   remoteDeleteBatch,
+  remoteDownloadBatch,
   remotePreview,
   remoteUploadBatch,
   showHiddenFiles
@@ -74,7 +76,21 @@ const createEntryName = ref('');
 const deleteDialogOpen = ref(false);
 const deleteTargetPaths = ref<string[]>([]);
 const deleteTargetLabel = ref('');
+const downloadDialogOpen = ref(false);
+const downloadTargetPaths = ref<string[]>([]);
+const downloadTargetLabel = ref('');
+const downloadPlanSummary = ref<{ totalFiles: number; totalBytes: number } | null>(null);
+const downloadPreparedPlan = ref<{
+  files: Array<{ remotePath: string; relativePath: string; size: number }>;
+  totalBytes: number;
+  totalFiles: number;
+} | null>(null);
+const downloadPlanLoading = ref(false);
+const downloadPlanError = ref('');
+const downloadSubmitting = ref(false);
 const contextMenuOpen = ref(false);
+const contextMenuMode = ref<'blank' | 'selection'>('blank');
+const contextMenuSelectionPaths = ref<string[]>([]);
 const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const renamingEntryPath = ref('');
@@ -191,6 +207,63 @@ const deleteProgressLabel = computed(() => {
   if (batch.status === 'error') return '删除失败';
   if (batch.status === 'canceled') return '删除已取消';
   return batch.totalEntries > 1 ? '批量删除中' : '删除中';
+});
+
+const downloadProgressPercent = computed(() => {
+  const batch = remoteDownloadBatch.value;
+  if (!batch) return 0;
+  if (batch.status === 'success') return 100;
+
+  const byteProgress = batch.totalBytes > 0 ? (batch.completedBytes / batch.totalBytes) * 100 : 0;
+  const fileProgress = batch.totalFiles > 0 ? (batch.completedFiles / batch.totalFiles) * 100 : 0;
+
+  return Math.min(100, Math.max(0, Math.round(byteProgress || fileProgress)));
+});
+
+const downloadProgressLabel = computed(() => {
+  const batch = remoteDownloadBatch.value;
+  if (!batch) return '';
+  if (batch.status === 'success') return '下载完成';
+  if (batch.status === 'error') return '下载失败';
+  if (batch.status === 'canceled') return '下载已取消';
+  if (batch.status === 'downloading' && batch.totalFiles === 0) return '准备下载中';
+  return batch.totalFiles > 1 ? '批量下载中' : '下载中';
+});
+
+const downloadProgressIndeterminate = computed(() => {
+  const batch = remoteDownloadBatch.value;
+  return Boolean(batch && batch.status === 'downloading' && batch.totalFiles === 0);
+});
+
+const downloadElapsedMs = computed(() => {
+  const batch = remoteDownloadBatch.value;
+  if (!batch) return 0;
+  return Math.max(0, transferClockMs.value - batch.startedAt);
+});
+
+const downloadElapsedLabel = computed(() => formatDuration(downloadElapsedMs.value));
+
+const downloadSpeedBytesPerSecond = computed(() => {
+  const elapsedSeconds = downloadElapsedMs.value / 1000;
+  if (elapsedSeconds <= 0) return 0;
+  return remoteDownloadBatch.value
+    ? remoteDownloadBatch.value.completedBytes / elapsedSeconds
+    : 0;
+});
+
+const downloadSpeedLabel = computed(() => {
+  const speed = downloadSpeedBytesPerSecond.value;
+  return speed > 0 ? `${formatUploadSize(speed)}/s` : '--/s';
+});
+
+const downloadEtaLabel = computed(() => {
+  const batch = remoteDownloadBatch.value;
+  const speed = downloadSpeedBytesPerSecond.value;
+  if (!batch || batch.status !== 'downloading') return '';
+  if (speed <= 0 || batch.totalBytes <= 0) return '计算中';
+
+  const remainingMs = ((batch.totalBytes - batch.completedBytes) / speed) * 1000;
+  return formatDuration(Math.max(0, remainingMs));
 });
 
 function formatUploadSize(bytes: number) {
@@ -417,18 +490,133 @@ function closeDeleteDialog() {
   deleteTargetLabel.value = '';
 }
 
-function closeContextMenu() {
-  contextMenuOpen.value = false;
+function closeDownloadDialog() {
+  downloadDialogOpen.value = false;
+  downloadTargetPaths.value = [];
+  downloadTargetLabel.value = '';
+  downloadPlanSummary.value = null;
+  downloadPreparedPlan.value = null;
+  downloadPlanLoading.value = false;
+  downloadPlanError.value = '';
+  downloadSubmitting.value = false;
 }
 
-function openContextMenu(event: MouseEvent) {
-  event.preventDefault();
-  closeContextMenu();
-  clearEntrySelection();
-  contextMenuX.value = event.clientX;
-  contextMenuY.value = event.clientY;
-  contextMenuOpen.value = true;
+async function loadDownloadPlanSummary(paths: string[]) {
+  console.log('[remote-download] loadDownloadPlanSummary:start', { pathCount: paths.length, paths });
+  downloadPlanLoading.value = true;
+  downloadPlanError.value = '';
+  downloadPlanSummary.value = null;
+  downloadPreparedPlan.value = null;
 
+  try {
+    const entries = paths.flatMap((path) => {
+      const entry = visibleEntries.value.find((item) => item.path === path);
+      return entry ? [{ path, kind: entry.kind }] : [];
+    });
+    const plan = await window.api.ssh.prepareRemoteDownload({ paths, entries });
+    console.log('[remote-download] loadDownloadPlanSummary:done', {
+      totalFiles: plan.totalFiles,
+      totalBytes: plan.totalBytes
+    });
+    if (!plan.totalFiles) {
+      downloadPlanError.value = '所选项目中没有可下载的文件。';
+      return;
+    }
+
+    downloadPreparedPlan.value = plan;
+    downloadPlanSummary.value = {
+      totalFiles: plan.totalFiles,
+      totalBytes: plan.totalBytes
+    };
+  } catch (error) {
+    console.error('[remote-download] loadDownloadPlanSummary:failed', error);
+    downloadPlanError.value =
+      error instanceof Error ? error.message : 'Failed to prepare download plan.';
+  } finally {
+    downloadPlanLoading.value = false;
+  }
+}
+
+function openDownloadDialog(paths?: string[]) {
+  const targetPaths = paths?.length
+    ? [...paths]
+    : contextMenuSelectionPaths.value.length
+      ? [...contextMenuSelectionPaths.value]
+      : [...selectedEntryPaths.value];
+  console.log('[remote-download] openDownloadDialog', {
+    explicitPathCount: paths?.length ?? 0,
+    targetPathCount: targetPaths.length,
+    targetPaths
+  });
+  if (!targetPaths.length) {
+    console.warn('[remote-download] openDownloadDialog:skipped (no target paths)');
+    return;
+  }
+
+  closeContextMenu();
+  const label =
+    targetPaths.length === 1
+      ? (visibleEntries.value.find((entry) => entry.path === targetPaths[0])?.name ??
+        targetPaths[0])
+      : `已选中的 ${targetPaths.length} 个项目`;
+
+  downloadTargetPaths.value = targetPaths;
+  downloadTargetLabel.value = label;
+  downloadPlanSummary.value = null;
+  downloadPreparedPlan.value = null;
+  downloadPlanError.value = '';
+  downloadPlanLoading.value = false;
+  downloadDialogOpen.value = true;
+  console.log('[remote-download] openDownloadDialog:dialog-open');
+  void loadDownloadPlanSummary(targetPaths);
+}
+
+async function submitDownloadEntries() {
+  if (!downloadTargetPaths.value.length || downloadSubmitting.value) {
+    console.warn('[remote-download] submitDownloadEntries:skipped', {
+      targetPathCount: downloadTargetPaths.value.length,
+      downloadSubmitting: downloadSubmitting.value
+    });
+    return;
+  }
+
+  downloadSubmitting.value = true;
+  console.log('[remote-download] submitDownloadEntries:start', {
+    targetPaths: downloadTargetPaths.value,
+    hasCachedPlan: Boolean(downloadPreparedPlan.value?.files.length)
+  });
+
+  try {
+    console.log('[remote-download] submitDownloadEntries:pick-directory');
+    const pickResult = await window.api.ssh.pickDownloadDirectory();
+    console.log('[remote-download] submitDownloadEntries:pick-directory-result', pickResult);
+    if (pickResult.canceled || !pickResult.path) {
+      return;
+    }
+
+    const targetPaths = [...downloadTargetPaths.value];
+    const cachedPlan = downloadPreparedPlan.value;
+    closeDownloadDialog();
+    clearEntrySelection();
+    console.log('[remote-download] submitDownloadEntries:download-start', {
+      targetPaths,
+      localDirectory: pickResult.path
+    });
+    await store.downloadRemoteEntries(targetPaths, pickResult.path, cachedPlan);
+    console.log('[remote-download] submitDownloadEntries:download-finished');
+  } catch (error) {
+    console.error('[remote-download] submitDownloadEntries:failed', error);
+  } finally {
+    downloadSubmitting.value = false;
+  }
+}
+
+function closeContextMenu() {
+  contextMenuOpen.value = false;
+  contextMenuMode.value = 'blank';
+}
+
+function positionContextMenu() {
   nextTick(() => {
     const menu = contextMenuRef.value;
     if (!menu) {
@@ -444,6 +632,51 @@ function openContextMenu(event: MouseEvent) {
       contextMenuY.value = Math.max(padding, window.innerHeight - rect.height - padding);
     }
   });
+}
+
+function openContextMenuAt(event: MouseEvent, mode: 'blank' | 'selection') {
+  contextMenuMode.value = mode;
+  contextMenuX.value = event.clientX;
+  contextMenuY.value = event.clientY;
+  contextMenuOpen.value = true;
+  positionContextMenu();
+}
+
+/**
+ * 在文件列表区域统一处理右键菜单，避免嵌套按钮吞掉条目上的 contextmenu 事件。
+ * @param event 右键菜单事件
+ * @return void 无返回
+ */
+function handleExplorerContextMenu(event: MouseEvent) {
+  event.preventDefault();
+  closeContextMenu();
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    clearEntrySelection();
+    openContextMenuAt(event, 'blank');
+    return;
+  }
+
+  const entryRow = target.closest<HTMLElement>('.remote-entry-row[data-entry-path]');
+  const entryPath = entryRow?.dataset.entryPath;
+  if (entryPath) {
+    if (!isEntrySelected(entryPath)) {
+      selectSingleEntry(entryPath);
+    }
+
+    contextMenuSelectionPaths.value = [...selectedEntryPaths.value];
+    console.log('[remote-download] handleExplorerContextMenu:selection', {
+      entryPath,
+      selectionPaths: contextMenuSelectionPaths.value
+    });
+    openContextMenuAt(event, 'selection');
+    return;
+  }
+
+  contextMenuSelectionPaths.value = [];
+  clearEntrySelection();
+  openContextMenuAt(event, 'blank');
 }
 
 function selectSingleEntry(path: string) {
@@ -964,7 +1197,15 @@ function handleDocumentPointerDown(event: PointerEvent) {
     return;
   }
 
-  if (contextMenuOpen.value && !target.closest('.remote-context-menu')) {
+  if (target.closest('.remote-context-menu')) {
+    return;
+  }
+
+  if (target.closest('.remote-create-overlay')) {
+    return;
+  }
+
+  if (contextMenuOpen.value) {
     closeContextMenu();
   }
 
@@ -995,7 +1236,12 @@ function handleWindowKeyDown(event: KeyboardEvent) {
     return;
   }
 
-  if (editingEntryPath.value || createEntryDialogOpen.value || deleteDialogOpen.value) {
+  if (
+    editingEntryPath.value ||
+    createEntryDialogOpen.value ||
+    deleteDialogOpen.value ||
+    downloadDialogOpen.value
+  ) {
     return;
   }
 
@@ -1118,7 +1364,7 @@ onBeforeUnmount(() => {
         ref="explorerScrollRef"
         class="remote-explorer-scroll"
         :class="{ 'is-marquee-selecting': isMarqueeSelecting }"
-        @contextmenu="openContextMenu"
+        @contextmenu="handleExplorerContextMenu"
         @pointerdown="handleExplorerPointerDown"
       >
         <div
@@ -1137,7 +1383,7 @@ onBeforeUnmount(() => {
         <div v-if="explorerLoading" class="empty-state compact">{{ t('loadingRemoteFiles') }}</div>
 
         <div v-else-if="visibleEntries.length" class="remote-entry-list">
-          <button
+          <div
             v-for="entry in visibleEntries"
             :key="entry.path"
             class="remote-entry-row"
@@ -1159,7 +1405,7 @@ onBeforeUnmount(() => {
                 @keydown.enter.prevent="void submitRename(entry)"
                 @keydown.esc.prevent="cancelRename()"
               />
-              <button
+              <span
                 v-else
                 class="remote-entry-name"
                 :class="{ 'is-selected': isEntrySelected(entry.path) }"
@@ -1167,7 +1413,7 @@ onBeforeUnmount(() => {
                 @dblclick.stop="void openEntry(entry)"
               >
                 {{ entry.name }}
-              </button>
+              </span>
             </div>
             <div class="remote-entry-actions">
               <button
@@ -1185,7 +1431,7 @@ onBeforeUnmount(() => {
                 <Trash2 :size="13" />
               </button>
             </div>
-          </button>
+          </div>
         </div>
 
         <EmptyStatePanel
@@ -1333,20 +1579,114 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <section
+      v-if="remoteDownloadBatch"
+      class="remote-upload-toast remote-download-toast"
+      :class="`is-${remoteDownloadBatch.status}`"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="remote-upload-icon" aria-hidden="true">
+        <CheckCircle2 v-if="remoteDownloadBatch.status === 'success'" :size="18" />
+        <XCircle v-else-if="remoteDownloadBatch.status === 'error'" :size="18" />
+        <Download v-else :size="18" />
+      </div>
+
+      <div class="remote-upload-main">
+        <div class="remote-upload-header">
+          <div class="remote-upload-title-group">
+            <strong>{{ downloadProgressLabel }}</strong>
+            <span>
+              <template v-if="remoteDownloadBatch.totalFiles > 0">
+                {{ remoteDownloadBatch.completedFiles }}/{{ remoteDownloadBatch.totalFiles }} files
+              </template>
+              <template v-else>准备中</template>
+            </span>
+          </div>
+          <button
+            type="button"
+            class="remote-upload-close"
+            :aria-label="
+              remoteDownloadBatch.status === 'downloading' ? '取消下载' : '关闭下载进度'
+            "
+            @click="
+              remoteDownloadBatch.status === 'downloading'
+                ? store.cancelRemoteDownloadBatch()
+                : store.dismissRemoteDownloadBatch()
+            "
+          >
+            <X :size="14" />
+          </button>
+        </div>
+
+        <div class="remote-upload-track" aria-hidden="true">
+          <div
+            class="remote-upload-bar"
+            :class="{ 'is-indeterminate': downloadProgressIndeterminate }"
+            :style="downloadProgressIndeterminate ? undefined : { width: `${downloadProgressPercent}%` }"
+          ></div>
+        </div>
+
+        <div class="remote-upload-meta">
+          <span v-if="remoteDownloadBatch.status === 'downloading'" class="remote-upload-current">
+            {{ remoteDownloadBatch.currentFileName }}
+          </span>
+          <span
+            v-else-if="
+              remoteDownloadBatch.status === 'error' || remoteDownloadBatch.status === 'canceled'
+            "
+            class="remote-upload-error"
+          >
+            {{ remoteDownloadBatch.error }}
+          </span>
+          <span v-else>选中的远程文件已保存到本地</span>
+        </div>
+
+        <div v-if="remoteDownloadBatch.totalBytes > 0" class="remote-upload-stats">
+          <span>
+            {{ formatUploadSize(remoteDownloadBatch.completedBytes) }} /
+            {{ formatUploadSize(remoteDownloadBatch.totalBytes) }}
+          </span>
+        </div>
+
+        <div
+          v-if="remoteDownloadBatch.totalBytes > 0"
+          class="remote-upload-stats"
+          aria-label="下载时间和速度"
+        >
+          <span>已用 {{ downloadElapsedLabel }}</span>
+          <span>{{ downloadSpeedLabel }}</span>
+          <span v-if="remoteDownloadBatch.status === 'downloading'">剩余 {{ downloadEtaLabel }}</span>
+        </div>
+      </div>
+    </section>
+
     <div
       v-if="contextMenuOpen"
       ref="contextMenuRef"
       class="remote-context-menu"
       :style="{ left: `${contextMenuX}px`, top: `${contextMenuY}px` }"
     >
-      <button class="remote-context-menu-item" @click="openCreateEntryDialog('file')">
-        <FileText :size="14" />
-        <span>新建文件</span>
-      </button>
-      <button class="remote-context-menu-item" @click="openCreateEntryDialog('directory')">
-        <FolderOpen :size="14" />
-        <span>新建文件夹</span>
-      </button>
+      <template v-if="contextMenuMode === 'selection'">
+        <button
+          class="remote-context-menu-item"
+          :disabled="!contextMenuSelectionPaths.length || explorerBusy"
+          @click.stop="void openDownloadDialog(contextMenuSelectionPaths)"
+        >
+          <Download :size="14" />
+          <span>下载</span>
+        </button>
+      </template>
+      <template v-else>
+        <button class="remote-context-menu-item" @click="openCreateEntryDialog('file')">
+          <FileText :size="14" />
+          <span>新建文件</span>
+        </button>
+        <button class="remote-context-menu-item" @click="openCreateEntryDialog('directory')">
+          <FolderOpen :size="14" />
+          <span>新建文件夹</span>
+        </button>
+      </template>
     </div>
 
     <div
@@ -1409,6 +1749,51 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </form>
+      </section>
+    </div>
+
+    <div
+      v-if="downloadDialogOpen"
+      class="remote-create-overlay"
+      @click.self="closeDownloadDialog()"
+    >
+      <section
+        class="remote-create-dialog remote-download-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="下载远程文件"
+      >
+        <div class="remote-create-header">
+          <span class="remote-create-eyebrow">REMOTE EXPLORER</span>
+          <h3 class="remote-create-title">下载到本地</h3>
+          <p class="remote-create-copy">
+            {{ downloadTargetPaths.length > 1 ? '将下载这些项目：' : '将下载这个项目：' }}
+            <span class="remote-delete-label">{{ downloadTargetLabel }}</span>
+          </p>
+        </div>
+
+        <p v-if="downloadPlanLoading" class="remote-download-summary">正在统计文件...</p>
+        <p v-else-if="downloadPlanError" class="remote-download-summary is-error">
+          {{ downloadPlanError }}
+        </p>
+        <p v-else-if="downloadPlanSummary" class="remote-download-summary">
+          共 {{ downloadPlanSummary.totalFiles }} 个文件，约
+          {{ formatUploadSize(downloadPlanSummary.totalBytes) }}
+        </p>
+
+        <div class="remote-create-actions remote-delete-actions">
+          <button type="button" class="remote-create-secondary" @click="closeDownloadDialog()">
+            取消
+          </button>
+          <button
+            type="button"
+            class="remote-create-primary"
+            :disabled="downloadSubmitting"
+            @click="void submitDownloadEntries()"
+          >
+            {{ downloadSubmitting ? '正在打开...' : '选择保存位置并下载' }}
+          </button>
+        </div>
       </section>
     </div>
 
@@ -1510,6 +1895,21 @@ onBeforeUnmount(() => {
 
 .remote-delete-toast {
   bottom: 118px;
+}
+
+.remote-download-toast {
+  bottom: 214px;
+}
+
+.remote-download-summary {
+  margin: 0 0 14px;
+  color: rgba(176, 186, 194, 0.9);
+  font-size: 12px;
+  line-height: 1.45;
+
+  &.is-error {
+    color: rgba(255, 168, 168, 0.92);
+  }
 }
 
 .remote-upload-icon {
@@ -1906,9 +2306,14 @@ onBeforeUnmount(() => {
   text-align: left;
   cursor: pointer;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: rgba(0, 220, 229, 0.1);
     color: rgba(241, 248, 250, 0.98);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
   }
 }
 

@@ -380,6 +380,22 @@ const api = {
       kind?: 'file' | 'directory' | 'symlink';
     }): Promise<{ ok: true; path: string }> =>
       ipcRenderer.invoke('ssh:delete-remote-entry', payload),
+    pickDownloadDirectory: (): Promise<{ canceled: boolean; path: string }> =>
+      ipcRenderer.invoke('ssh:pick-download-directory'),
+    prepareRemoteDownload: (payload: {
+      paths: string[];
+      entries: Array<{ path: string; kind: 'file' | 'directory' | 'symlink' }>;
+    }): Promise<{
+      files: Array<{ remotePath: string; relativePath: string; size: number }>;
+      totalBytes: number;
+      totalFiles: number;
+    }> => ipcRenderer.invoke('ssh:prepare-remote-download', payload),
+    downloadRemoteFile: (payload: {
+      remotePath: string;
+      localDirectory: string;
+      relativePath: string;
+    }): Promise<{ ok: true; path: string; localPath: string; bytes: number }> =>
+      ipcRenderer.invoke('ssh:download-remote-file', payload),
     getLatency: (): Promise<number | null> => ipcRenderer.invoke('ssh:get-latency'),
     getSystemMetrics: (): Promise<SystemMetrics | null> =>
       ipcRenderer.invoke('ssh:get-system-metrics'),

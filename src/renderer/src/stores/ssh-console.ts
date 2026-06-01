@@ -68,6 +68,26 @@ type RemoteDeleteBatch = {
   startedAt: number;
 };
 
+type RemoteDownloadBatchStatus = 'idle' | 'downloading' | 'success' | 'error' | 'canceled';
+
+type RemoteDownloadBatch = {
+  id: number;
+  status: RemoteDownloadBatchStatus;
+  totalFiles: number;
+  completedFiles: number;
+  totalBytes: number;
+  completedBytes: number;
+  currentFileName: string;
+  error: string;
+  startedAt: number;
+};
+
+type RemoteDownloadPlan = {
+  files: Array<{ remotePath: string; relativePath: string; size: number }>;
+  totalBytes: number;
+  totalFiles: number;
+};
+
 const TAB_STORAGE_KEY = 'cool-buddy:open-tabs';
 const LOCALE_STORAGE_KEY = 'cool-buddy:locale';
 const AGENT_PROVIDER_DRAFTS_STORAGE_KEY = 'cool-buddy:agent-provider-drafts';
@@ -79,6 +99,8 @@ const REMOTE_UPLOAD_CONCURRENCY = 6;
 const REMOTE_UPLOAD_WRITE_PIPELINE = 4;
 const REMOTE_UPLOAD_PROGRESS_INTERVAL_MS = 100;
 const REMOTE_DELETE_CONCURRENCY = 8;
+const REMOTE_DOWNLOAD_CONCURRENCY = 4;
+const REMOTE_DOWNLOAD_PROGRESS_INTERVAL_MS = 100;
 
 const AGENT_PROVIDER_PRESETS: AgentProviderOption[] = [
   {
@@ -499,6 +521,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   const explorerError = ref('');
   const remoteUploadBatch = ref<RemoteUploadBatch | null>(null);
   const remoteDeleteBatch = ref<RemoteDeleteBatch | null>(null);
+  const remoteDownloadBatch = ref<RemoteDownloadBatch | null>(null);
   const remoteAppsLoading = ref(false);
   const remoteAppsError = ref('');
   const metricsLoading = ref(false);
@@ -515,9 +538,12 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
   let uploadBatchHideTimer: number | null = null;
   let deleteBatchId = 0;
   let deleteBatchHideTimer: number | null = null;
+  let downloadBatchId = 0;
+  let downloadBatchHideTimer: number | null = null;
   const canceledUploadBatchIds = new Set<number>();
   const failedUploadBatchIds = new Set<number>();
   const canceledDeleteBatchIds = new Set<number>();
+  const canceledDownloadBatchIds = new Set<number>();
   const sshAuthCapabilities = ref<SshAuthCapabilities>(createDefaultSshAuthCapabilities());
   const form = ref<ConnectionForm>(createDefaultForm());
   const sessionDraft = ref<SessionDraft>(createDefaultSessionDraft());
@@ -1811,6 +1837,213 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     };
   }
 
+  function clearDownloadBatchHideTimer() {
+    if (downloadBatchHideTimer) {
+      window.clearTimeout(downloadBatchHideTimer);
+      downloadBatchHideTimer = null;
+    }
+  }
+
+  function scheduleDownloadBatchDismiss() {
+    clearDownloadBatchHideTimer();
+    downloadBatchHideTimer = window.setTimeout(() => {
+      if (remoteDownloadBatch.value?.status !== 'downloading') {
+        remoteDownloadBatch.value = null;
+      }
+      downloadBatchHideTimer = null;
+    }, 3200);
+  }
+
+  function dismissRemoteDownloadBatch() {
+    if (remoteDownloadBatch.value?.status === 'downloading') {
+      return;
+    }
+
+    clearDownloadBatchHideTimer();
+    remoteDownloadBatch.value = null;
+  }
+
+  function cancelRemoteDownloadBatch() {
+    const batch = remoteDownloadBatch.value;
+    if (!batch || batch.status !== 'downloading') {
+      return;
+    }
+
+    canceledDownloadBatchIds.add(batch.id);
+    remoteDownloadBatch.value = {
+      ...batch,
+      status: 'canceled',
+      error: 'Download canceled.'
+    };
+  }
+
+  /**
+   * 将选中的远程文件或目录下载到本地目录。
+   * @param paths 待下载的远程路径列表
+   * @param localDirectory 本地下载根目录
+   * @return Promise<void> 无返回
+   */
+  async function downloadRemoteEntries(
+    paths: string[],
+    localDirectory: string,
+    cachedPlan: RemoteDownloadPlan | null = null
+  ) {
+    console.log('[remote-download] downloadRemoteEntries:start', {
+      pathCount: paths.length,
+      paths,
+      localDirectory,
+      cachedFileCount: cachedPlan?.files.length ?? 0
+    });
+    if (!remoteDirectory.value || !paths.length || !localDirectory.trim()) {
+      console.warn('[remote-download] downloadRemoteEntries:skipped (missing directory/paths)');
+      return;
+    }
+
+    explorerError.value = '';
+    const currentBatchId = ++downloadBatchId;
+    let downloadedBytes = 0;
+    let lastProgressUpdateAt = 0;
+
+    clearDownloadBatchHideTimer();
+    remoteDownloadBatch.value = {
+      id: currentBatchId,
+      status: 'downloading',
+      totalFiles: cachedPlan?.totalFiles ?? 0,
+      completedFiles: 0,
+      totalBytes: cachedPlan?.totalBytes ?? 0,
+      completedBytes: 0,
+      currentFileName: '正在扫描远程文件...',
+      error: '',
+      startedAt: Date.now()
+    };
+    console.log('[remote-download] downloadRemoteEntries:batch-visible', {
+      batchId: currentBatchId,
+      status: remoteDownloadBatch.value.status
+    });
+
+    try {
+      await waitForProgressPaint();
+
+      let plan = cachedPlan;
+      if (!plan?.files.length) {
+        const entryKindByPath = new Map(
+          remoteDirectory.value.entries.map((entry) => [entry.path, entry.kind])
+        );
+        const selectedEntries = paths.flatMap((path) => {
+          const kind = entryKindByPath.get(path);
+          return kind ? [{ path, kind }] : [];
+        });
+        console.log('[remote-download] downloadRemoteEntries:prepare-start', {
+          selectedEntries
+        });
+        plan = await window.api.ssh.prepareRemoteDownload({
+          paths,
+          entries: selectedEntries
+        });
+        console.log('[remote-download] downloadRemoteEntries:prepare-done', {
+          totalFiles: plan.totalFiles,
+          totalBytes: plan.totalBytes
+        });
+      }
+
+      if (!plan.files.length) {
+        const message = '所选项目中没有可下载的文件。';
+        explorerError.value = message;
+        if (remoteDownloadBatch.value?.id === currentBatchId) {
+          remoteDownloadBatch.value = {
+            ...remoteDownloadBatch.value,
+            status: 'error',
+            error: message
+          };
+        }
+        return;
+      }
+
+      if (remoteDownloadBatch.value?.id === currentBatchId) {
+        remoteDownloadBatch.value = {
+          ...remoteDownloadBatch.value,
+          totalFiles: plan.totalFiles,
+          totalBytes: plan.totalBytes,
+          currentFileName: plan.files[0]?.relativePath ?? ''
+        };
+      }
+
+      await waitForProgressPaint();
+
+      await runConcurrent(plan.files, REMOTE_DOWNLOAD_CONCURRENCY, async (file) => {
+        if (canceledDownloadBatchIds.has(currentBatchId)) {
+          throw new Error('Download canceled.');
+        }
+
+        if (remoteDownloadBatch.value?.id === currentBatchId) {
+          remoteDownloadBatch.value = {
+            ...remoteDownloadBatch.value,
+            currentFileName: file.relativePath
+          };
+        }
+
+        console.log('[remote-download] downloadRemoteEntries:file-start', {
+          remotePath: file.remotePath,
+          relativePath: file.relativePath
+        });
+        const result = await window.api.ssh.downloadRemoteFile({
+          remotePath: file.remotePath,
+          localDirectory,
+          relativePath: file.relativePath
+        });
+        console.log('[remote-download] downloadRemoteEntries:file-done', {
+          remotePath: file.remotePath,
+          bytes: result.bytes,
+          localPath: result.localPath
+        });
+        downloadedBytes += result.bytes;
+
+        const now = window.performance.now();
+        const shouldUpdateProgress =
+          now - lastProgressUpdateAt >= REMOTE_DOWNLOAD_PROGRESS_INTERVAL_MS ||
+          downloadedBytes >= plan.totalBytes;
+
+        if (shouldUpdateProgress && remoteDownloadBatch.value?.id === currentBatchId) {
+          lastProgressUpdateAt = now;
+          remoteDownloadBatch.value = {
+            ...remoteDownloadBatch.value,
+            completedBytes: Math.min(plan.totalBytes, downloadedBytes)
+          };
+        }
+
+        if (remoteDownloadBatch.value?.id === currentBatchId) {
+          remoteDownloadBatch.value = {
+            ...remoteDownloadBatch.value,
+            completedFiles: remoteDownloadBatch.value.completedFiles + 1,
+            completedBytes: Math.min(plan.totalBytes, downloadedBytes)
+          };
+        }
+      });
+
+      if (remoteDownloadBatch.value?.id === currentBatchId) {
+        remoteDownloadBatch.value = {
+          ...remoteDownloadBatch.value,
+          status: 'success',
+          completedFiles: plan.totalFiles,
+          completedBytes: plan.totalBytes,
+          currentFileName: ''
+        };
+        scheduleDownloadBatchDismiss();
+      }
+      console.log('[remote-download] downloadRemoteEntries:success', { batchId: currentBatchId });
+    } catch (error) {
+      console.error('[remote-download] downloadRemoteEntries:failed', error);
+      explorerError.value = error instanceof Error ? error.message : 'Failed to download files.';
+      if (remoteDownloadBatch.value?.status === 'downloading') {
+        remoteDownloadBatch.value = {
+          ...remoteDownloadBatch.value,
+          status: canceledDownloadBatchIds.has(remoteDownloadBatch.value.id) ? 'canceled' : 'error',
+          error: explorerError.value
+        };
+      }
+    }
+  }
+
   /**
    * 上传文件列表；当文件带相对路径时，会自动补齐远程目录结构。
    * @param files 待上传文件列表
@@ -2507,6 +2740,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     canSaveSession,
     canSaveAgentSettings,
     cancelRemoteDeleteBatch,
+    cancelRemoteDownloadBatch,
     cancelRemoteUploadBatch,
     chooseSessionDraftPrivateKey,
     hasAgentProviderConfigured,
@@ -2518,7 +2752,9 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     connectToSession,
     connectionLabel,
     dismissRemoteDeleteBatch,
+    dismissRemoteDownloadBatch,
     dismissRemoteUploadBatch,
+    downloadRemoteEntries,
     disconnect,
     explorerBusy,
     explorerError,
@@ -2569,6 +2805,7 @@ export const useSshConsoleStore = defineStore('ssh-console', () => {
     resolveHarmlessAgentApproval,
     renameRemoteEntry,
     remoteDeleteBatch,
+    remoteDownloadBatch,
     remoteUploadBatch,
     runHarmlessAgentPrompt,
     saveSession,

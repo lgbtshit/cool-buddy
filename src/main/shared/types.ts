@@ -318,6 +318,34 @@ export type RemoteRenamePayload = {
   newPath: string;
 };
 
+export type RemoteDownloadEntryRef = {
+  path: string;
+  kind: RemoteEntry['kind'];
+};
+
+export type RemoteDownloadPreparePayload = {
+  paths: string[];
+  entries: RemoteDownloadEntryRef[];
+};
+
+export type RemoteDownloadPlanFile = {
+  remotePath: string;
+  relativePath: string;
+  size: number;
+};
+
+export type RemoteDownloadPlan = {
+  files: RemoteDownloadPlanFile[];
+  totalBytes: number;
+  totalFiles: number;
+};
+
+export type RemoteDownloadFilePayload = {
+  remotePath: string;
+  localDirectory: string;
+  relativePath: string;
+};
+
 export type RemoteDeletePayload = {
   path: string;
   recursive?: boolean;

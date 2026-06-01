@@ -1,10 +1,13 @@
-import { basename, join, posix } from 'path';
-import { mkdtemp, readFile, writeFile } from 'fs/promises';
+import { basename, join, posix, resolve, sep } from 'path';
+import { mkdir, mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import type { FileEntry } from 'ssh2';
 import { ensureSftp, sshExec } from './ssh-runtime';
 import type {
   RemoteDeletePayload,
+  RemoteDownloadFilePayload,
+  RemoteDownloadPlan,
+  RemoteDownloadPreparePayload,
   RemoteEntry,
   RemotePathCompletionPayload,
   RemotePathCompletionResult,
@@ -85,12 +88,203 @@ function createSafeLocalFileName(remotePath: string): string {
   const rawName = basename(remotePath).trim();
   const fallbackName = 'remote-file';
   const normalizedName = rawName && rawName !== '.' && rawName !== '..' ? rawName : fallbackName;
-  const sanitizedName = normalizedName
+  return sanitizeLocalPathSegment(normalizedName, fallbackName);
+}
+
+/**
+ * 清理本地路径片段，避免非法字符导致写入失败。
+ * @param segment 原始路径片段
+ * @param fallbackName 兜底名称
+ * @return string 可安全用于本地路径的片段
+ */
+function sanitizeLocalPathSegment(segment: string, fallbackName = 'item'): string {
+  const sanitizedName = segment
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
     .replace(/[. ]+$/g, '')
     .trim();
 
   return sanitizedName || fallbackName;
+}
+
+/**
+ * 将远程相对路径转换为可安全写入本地的相对路径。
+ * @param selectionRoot 用户选中的远程根路径
+ * @param targetPath 当前远程文件路径
+ * @param rootKind 根路径类型
+ * @return string 本地相对路径
+ */
+function buildDownloadRelativePath(
+  selectionRoot: string,
+  targetPath: string,
+  rootKind: RemoteEntry['kind']
+): string {
+  const normalizedRoot = normalizeRemotePath(selectionRoot);
+  const normalizedTarget = normalizeRemotePath(targetPath);
+
+  if (rootKind === 'file' || rootKind === 'symlink') {
+    return createSafeLocalFileName(normalizedTarget);
+  }
+
+  const rootFolderName = createSafeLocalFileName(normalizedRoot);
+  if (normalizedTarget === normalizedRoot) {
+    return rootFolderName;
+  }
+
+  const suffix = posix.relative(normalizedRoot, normalizedTarget);
+  if (!suffix || suffix === '.') {
+    return rootFolderName;
+  }
+
+  return posix.join(
+    rootFolderName,
+    ...suffix.split('/').map((segment) => sanitizeLocalPathSegment(segment))
+  );
+}
+
+/**
+ * 解析并校验本地下载目标路径，防止目录穿越。
+ * @param localDirectory 本地下载根目录
+ * @param relativePath 相对路径
+ * @return string 绝对本地路径
+ */
+function resolveSafeLocalDownloadPath(localDirectory: string, relativePath: string): string {
+  const normalizedRelative = relativePath.replace(/\\/g, '/');
+  if (!normalizedRelative || normalizedRelative.includes('..')) {
+    throw new Error('Invalid download path.');
+  }
+
+  const localPath = join(localDirectory, normalizedRelative);
+  const resolvedDirectory = resolve(localDirectory);
+  const resolvedPath = resolve(localPath);
+  const directoryPrefix = `${resolvedDirectory}${sep}`;
+  const isInsideDirectory =
+    resolvedPath === resolvedDirectory ||
+    resolvedPath.toLowerCase().startsWith(directoryPrefix.toLowerCase());
+  if (!isInsideDirectory) {
+    throw new Error(`Invalid download path: ${relativePath}`);
+  }
+
+  return resolvedPath;
+}
+
+/**
+ * 递归收集远程下载计划中的文件列表。
+ * @param selectionRoot 用户选中的远程根路径
+ * @param currentPath 当前遍历路径
+ * @param rootKind 根路径类型
+ * @param files 收集结果
+ * @return Promise<void> 无返回
+ */
+async function collectRemoteDownloadFilesAt(
+  selectionRoot: string,
+  currentPath: string,
+  rootKind: RemoteEntry['kind'],
+  files: RemoteDownloadPlan['files']
+): Promise<void> {
+  if (rootKind === 'file' || rootKind === 'symlink') {
+    const stats = await sftpLstat(currentPath).catch(() => null);
+    const size =
+      typeof (stats as { size?: unknown })?.size === 'number'
+        ? Number((stats as { size: number }).size)
+        : 0;
+    files.push({
+      remotePath: normalizeRemotePath(currentPath),
+      relativePath: buildDownloadRelativePath(selectionRoot, currentPath, rootKind),
+      size
+    });
+    return;
+  }
+
+  const entries = await sftpReaddir(currentPath);
+  for (const entry of entries) {
+    if (entry.filename === '.' || entry.filename === '..') {
+      continue;
+    }
+
+    const childPath = joinRemotePath(currentPath, entry.filename);
+    const kind = getEntryKind(entry);
+    if (kind === 'directory') {
+      await collectRemoteDownloadFilesAt(selectionRoot, childPath, 'directory', files);
+      continue;
+    }
+
+    files.push({
+      remotePath: normalizeRemotePath(childPath),
+      relativePath: buildDownloadRelativePath(selectionRoot, childPath, 'directory'),
+      size: entry.attrs.size ?? 0
+    });
+  }
+}
+
+/**
+ * 根据用户选中的远程条目生成下载计划。
+ * @param payload 选中路径与类型
+ * @return Promise<RemoteDownloadPlan> 下载计划
+ */
+export async function prepareRemoteDownload(
+  payload: RemoteDownloadPreparePayload
+): Promise<RemoteDownloadPlan> {
+  const startedAt = performance.now();
+  console.log('[remote-download] prepareRemoteDownload:start', {
+    pathCount: payload.paths.length,
+    paths: payload.paths,
+    entryCount: payload.entries.length
+  });
+  const files: RemoteDownloadPlan['files'] = [];
+  const kindByPath = new Map(payload.entries.map((entry) => [normalizeRemotePath(entry.path), entry.kind]));
+
+  for (const rawPath of payload.paths) {
+    const path = normalizeRemotePath(rawPath);
+    const knownKind = kindByPath.get(path);
+    const kind =
+      knownKind ??
+      (isSftpDirectory(await sftpLstat(path).catch(() => null)) ? 'directory' : 'file');
+
+    console.log('[remote-download] prepareRemoteDownload:collect', { path, kind });
+    await collectRemoteDownloadFilesAt(path, path, kind, files);
+  }
+
+  const totalBytes = files.reduce((total, file) => total + file.size, 0);
+  const plan = {
+    files,
+    totalBytes,
+    totalFiles: files.length
+  };
+  console.log('[remote-download] prepareRemoteDownload:done', {
+    ...plan,
+    durationMs: Math.round(performance.now() - startedAt)
+  });
+  return plan;
+}
+
+/**
+ * 将远程文件下载到本地目录中的指定相对路径。
+ * @param payload 远程路径、本地目录与相对路径
+ * @return Promise<{ ok: true; path: string; localPath: string; bytes: number }> 下载结果
+ */
+export async function downloadRemoteFileToLocal(payload: RemoteDownloadFilePayload) {
+  const startedAt = performance.now();
+  const remotePath = normalizeRemotePath(payload.remotePath);
+  console.log('[remote-download] downloadRemoteFileToLocal:start', {
+    remotePath,
+    relativePath: payload.relativePath,
+    localDirectory: payload.localDirectory
+  });
+  const localPath = resolveSafeLocalDownloadPath(payload.localDirectory, payload.relativePath);
+  const fileBuffer = await sftpReadFile(remotePath);
+  await mkdir(resolve(localPath, '..'), { recursive: true });
+  await writeFile(localPath, fileBuffer);
+  const result = {
+    ok: true as const,
+    path: remotePath,
+    localPath,
+    bytes: fileBuffer.byteLength
+  };
+  console.log('[remote-download] downloadRemoteFileToLocal:done', {
+    ...result,
+    durationMs: Math.round(performance.now() - startedAt)
+  });
+  return result;
 }
 
 /**

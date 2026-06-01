@@ -31,7 +31,9 @@ import {
   appendRemoteUploadChunk,
   cancelRemoteUpload,
   deleteRemoteEntry,
+  downloadRemoteFileToLocal,
   downloadRemoteFileToTemp,
+  prepareRemoteDownload,
   finishRemoteUpload,
   listRemoteDirectory,
   readRemoteFile,
@@ -806,6 +808,41 @@ exec tail -n ${lineCount} -f -- ${quoteShellArg(path)}
   );
   ipcMain.handle('ssh:rename-remote-entry', async (_event, payload) => renameRemoteEntry(payload));
   ipcMain.handle('ssh:delete-remote-entry', async (_event, payload) => deleteRemoteEntry(payload));
+  ipcMain.handle('ssh:pick-download-directory', async () => {
+    console.log('[remote-download] ipc:pick-download-directory');
+    const mainWindow = getMainWindow();
+    const dialogOptions: Electron.OpenDialogOptions = {
+      title: '选择下载保存位置',
+      defaultPath: join(homedir(), 'Downloads'),
+      properties: ['openDirectory', 'createDirectory']
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+
+    const response = {
+      canceled: result.canceled,
+      path: result.canceled ? '' : (result.filePaths[0] ?? '')
+    };
+    console.log('[remote-download] ipc:pick-download-directory:result', response);
+    return response;
+  });
+  ipcMain.handle('ssh:prepare-remote-download', async (_event, payload) => {
+    try {
+      return await prepareRemoteDownload(payload);
+    } catch (error) {
+      console.error('[remote-download] ipc:prepare-remote-download:failed', error);
+      throw error;
+    }
+  });
+  ipcMain.handle('ssh:download-remote-file', async (_event, payload) => {
+    try {
+      return await downloadRemoteFileToLocal(payload);
+    } catch (error) {
+      console.error('[remote-download] ipc:download-remote-file:failed', error);
+      throw error;
+    }
+  });
   ipcMain.handle('ssh:get-system-metrics', async () => readSystemMetrics());
   ipcMain.handle('ssh:get-live-metrics', async () => readLiveSystemMetrics());
   ipcMain.handle('ssh:get-latency', async () => measureSshLatency());

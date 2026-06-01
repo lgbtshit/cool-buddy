@@ -343,6 +343,20 @@ type AppApi = {
       recursive?: boolean;
       kind?: 'file' | 'directory' | 'symlink';
     }) => Promise<{ ok: true; path: string }>;
+    pickDownloadDirectory: () => Promise<{ canceled: boolean; path: string }>;
+    prepareRemoteDownload: (payload: {
+      paths: string[];
+      entries: Array<{ path: string; kind: 'file' | 'directory' | 'symlink' }>;
+    }) => Promise<{
+      files: Array<{ remotePath: string; relativePath: string; size: number }>;
+      totalBytes: number;
+      totalFiles: number;
+    }>;
+    downloadRemoteFile: (payload: {
+      remotePath: string;
+      localDirectory: string;
+      relativePath: string;
+    }) => Promise<{ ok: true; path: string; localPath: string; bytes: number }>;
     getLatency: () => Promise<number | null>;
     getSystemMetrics: () => Promise<SystemMetrics | null>;
     getLiveMetrics: () => Promise<LiveSystemMetrics | null>;
